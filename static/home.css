@@ -1,98 +1,323 @@
-* { box-sizing: border-box; margin: 0; padding: 0; }
-[hidden] { display: none !important; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+[hidden] {
+  display: none !important;
+}
 
 :root {
-  --bg: #0f172a;
-  --card: #1e293b;
-  --text: #e2e8f0;
-  --muted: #94a3b8;
-  --accent: #3b82f6;
-  --bar-h: 56px;
+  --nav-h: 48px;
+  --dark: #1b1b1b;
+  --dark-2: #2b2b2b;
+  --blue: #0a4f8f;
+  --blue-hover: #0c5fa8;
+  --text: #1b1b1b;
+  --muted: #5c5c5c;
+  --bar-h: 52px;
 }
 
 body {
-  font-family: "Segoe UI", "Noto Sans Devanagari", Arial, sans-serif;
-  background: var(--bg);
+  font-family: "Segoe UI", Arial, sans-serif;
   color: var(--text);
+  background: #ffffff;
   min-height: 100vh;
 }
 
-/* ऊपर की बार */
+/* ---------- Top navigation (dark, like Microsoft 365) ---------- */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: var(--nav-h);
+  background: var(--dark);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  font-size: 14px;
+}
+.nav-left,
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+}
+.brand-mark {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+.brand-mark::before,
+.brand-mark::after {
+  content: "";
+  background: #f25022;
+}
+.brand-mark {
+  background:
+    linear-gradient(#7fba00, #7fba00) 0 0/8px 8px no-repeat,
+    linear-gradient(#00a4ef, #00a4ef) 0 10px/8px 8px no-repeat,
+    linear-gradient(#ffb900, #ffb900) 10px 0/8px 8px no-repeat,
+    linear-gradient(#f25022, #f25022) 10px 10px/8px 8px no-repeat;
+}
+.brand-mark::before,
+.brand-mark::after {
+  display: none;
+}
+.brand-divider {
+  width: 1px;
+  height: 18px;
+  background: #555;
+}
+.brand-product {
+  font-weight: 600;
+}
+.nav-links {
+  display: flex;
+  gap: 18px;
+  margin-left: 12px;
+}
+.nav-links a {
+  color: #e6e6e6;
+  text-decoration: none;
+}
+.nav-links a:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+.avatar {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #666;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+/* ---------- Hero ---------- */
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 420px;
+  padding: 48px 6vw;
+  background: linear-gradient(120deg, #b9cdf2 0%, #d7e6fb 60%, #eef5ff 100%);
+}
+.hero-text {
+  max-width: 480px;
+}
+.hero h1 {
+  font-size: 2.6rem;
+  font-weight: 600;
+  color: #1b1b1b;
+  margin-bottom: 14px;
+}
+.hero p {
+  font-size: 1rem;
+  color: #333;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+.hero-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  max-width: 420px;
+}
+.btn-hero {
+  display: block;
+  text-align: center;
+  background: var(--blue);
+  color: #fff;
+  text-decoration: none;
+  padding: 12px 16px;
+  border-radius: 2px;
+  font-size: 15px;
+}
+.btn-hero:hover {
+  background: var(--blue-hover);
+}
+
+.hero-art {
+  position: relative;
+  width: 420px;
+  height: 300px;
+  flex-shrink: 0;
+}
+.tile {
+  position: absolute;
+  width: 110px;
+  height: 110px;
+  border-radius: 14px;
+  color: #fff;
+  font-size: 56px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.18);
+}
+.tile-word {
+  background: #2b579a;
+  left: 40px;
+  top: 60px;
+  transform: rotate(-8deg);
+}
+.tile-excel {
+  background: #217346;
+  left: 180px;
+  top: 150px;
+  transform: rotate(6deg);
+}
+.tile-ppt {
+  background: #d24726;
+  left: 200px;
+  top: 0;
+  transform: rotate(10deg);
+  width: 90px;
+  height: 90px;
+  font-size: 44px;
+}
+.tile-one {
+  background: #7719aa;
+  left: 0;
+  top: 170px;
+  transform: rotate(-4deg);
+  width: 90px;
+  height: 90px;
+  font-size: 44px;
+}
+
+/* ---------- Apps row (bottom icons, like Microsoft 365) ---------- */
+.apps {
+  padding: 40px 6vw 20px;
+  text-align: center;
+}
+.apps h2 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 24px;
+}
+.app-row {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 40px;
+}
+.app-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  color: #0a4f8f;
+  text-decoration: underline;
+  padding: 8px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.app-link:hover {
+  background: #f1f5fb;
+}
+.app-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.app-link span.label {
+  font-size: 15px;
+}
+
+/* ---------- Footer / about ---------- */
+.footer {
+  margin-top: 40px;
+  padding: 28px 6vw;
+  background: #f3f3f3;
+  border-top: 1px solid #e1e1e1;
+}
+.footer p {
+  max-width: 900px;
+  color: var(--muted);
+  line-height: 1.6;
+  font-size: 14px;
+}
+.footer strong {
+  color: var(--text);
+}
+
+/* ---------- App view ---------- */
 .topbar {
   position: fixed;
-  top: 0; left: 0; right: 0;
+  top: 0;
+  left: 0;
+  right: 0;
   height: var(--bar-h);
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 0 16px;
-  background: #020617;
-  border-bottom: 1px solid #334155;
-  z-index: 10;
+  background: var(--dark);
+  color: #fff;
+  z-index: 30;
 }
-.app-title { font-weight: 600; flex: 1; }
-
+.app-title {
+  font-weight: 600;
+  flex: 1;
+}
 .btn {
-  background: var(--accent);
+  background: var(--blue);
   color: #fff;
   border: 0;
   padding: 8px 14px;
-  border-radius: 8px;
+  border-radius: 2px;
   cursor: pointer;
   text-decoration: none;
   font-size: 14px;
   white-space: nowrap;
+  font-family: inherit;
 }
-.btn:hover { filter: brightness(1.1); }
-.btn-outline { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
-
-/* होम पेज */
-.home {
-  padding: 48px 20px;
-  max-width: 1100px;
-  margin: 0 auto;
+.btn:hover {
+  background: var(--blue-hover);
 }
-.hero { text-align: center; margin-bottom: 40px; }
-.hero h1 { font-size: 2.4rem; margin-bottom: 8px; }
-.hero p { color: var(--muted); }
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 20px;
+.btn-outline {
+  background: transparent;
+  border: 1px solid #888;
+  color: #fff;
+}
+.btn-outline:hover {
+  background: #333;
 }
 
-.card {
-  background: var(--card);
-  border: 1px solid #334155;
-  border-radius: 14px;
-  padding: 24px;
-  cursor: pointer;
-  transition: transform .15s, border-color .15s, box-shadow .15s;
-  text-align: left;
-  color: inherit;
-  font: inherit;
-}
-.card:hover, .card:focus-visible {
-  transform: translateY(-4px);
-  border-color: var(--accent);
-  box-shadow: 0 10px 25px rgba(0,0,0,.35);
-  outline: none;
-}
-.card-icon {
-  width: 56px; height: 56px;
-  border-radius: 12px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 26px; font-weight: 700; color: #fff;
-  margin-bottom: 16px;
-}
-.card h2 { font-size: 1.2rem; margin-bottom: 6px; }
-.card p { color: var(--muted); font-size: 14px; line-height: 1.5; }
-
-/* ऐप व्यू */
 .app-view {
   position: fixed;
-  top: var(--bar-h); left: 0; right: 0; bottom: 0;
+  top: var(--bar-h);
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: #fff;
 }
 .app-frame {
@@ -102,8 +327,18 @@ body {
   display: block;
 }
 
-@media (max-width: 600px) {
-  .hero h1 { font-size: 1.8rem; }
-  .topbar { padding: 0 10px; gap: 8px; }
-  .btn-outline { display: none; }
+@media (max-width: 800px) {
+  .nav-links {
+    display: none;
+  }
+  .hero {
+    flex-direction: column;
+    text-align: left;
+  }
+  .hero-art {
+    display: none;
+  }
+  .hero h1 {
+    font-size: 2rem;
+  }
 }
