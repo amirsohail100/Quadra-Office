@@ -1,7 +1,7 @@
 {
   "name": "quadra-office",
   "version": "1.0.0",
-  "description": "Quadra Office desktop edition",
+  "description": "Quadra Office: an educational office suite by the Quadra brand",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -14,7 +14,7 @@
   "build": {
     "appId": "com.quadra.office",
     "productName": "Quadra Office",
-    "files": ["main.js", "static/**/*"],
+    "files": ["main.js", "static/**/*", "!static/V/**"],
     "win": { "target": "portable" },
     "directories": { "output": "dist" }
   }
