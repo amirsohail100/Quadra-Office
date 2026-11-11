@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-canvas="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quadra Word</title>
+  <link rel="stylesheet" href="style.css">
+  <style id="page-rule">@page { size: a4 portrait; margin: 0; }</style>
+</head>
+<body>
+<!-- ICONS:START -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none"><symbol id="i-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><circle cx="12" cy="16" r="3"/></symbol><symbol id="i-al-center" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M6 10h12M3 14h18M6 18h12"/></symbol><symbol id="i-al-justify" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 10h18M3 14h18M3 18h18"/></symbol><symbol id="i-al-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 10h12M3 14h18M3 18h12"/></symbol><symbol id="i-al-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M9 10h12M3 14h18M9 18h12"/></symbol><symbol id="i-apps" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol><symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></symbol><symbol id="i-bold" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h6a4 4 0 0 1 0 8H7zM7 12h7a4 4 0 0 1 0 8H7z"/></symbol><symbol id="i-brush" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6-8 8H6v-6z"/><path d="M4 20l3-3"/></symbol><symbol id="i-bullets" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="7" r="1.5"/><circle cx="5" cy="17" r="1.5"/><path d="M10 7h10M10 17h10"/></symbol><symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></symbol><symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></symbol><symbol id="i-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h9M7 16l8-10 4 4-7 8"/><path d="M3 3l18 18"/></symbol><symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></symbol><symbol id="i-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.4 1.5A3.5 3.5 0 0 0 7 18z"/><path d="M9 13l2 2 4-4"/></symbol><symbol id="i-cloud-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.4 1.5"/><path d="M3 3l18 18"/></symbol><symbol id="i-color" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 13H5z"/><path d="M4 21h16"/></symbol><symbol id="i-cols" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M12 4v16"/></symbol><symbol id="i-columns" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="8" height="16" rx="1"/><rect x="13" y="4" width="8" height="16" rx="1"/></symbol><symbol id="i-comment" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></symbol><symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V5a1 1 0 0 1 1-1h11"/></symbol><symbol id="i-count" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l2-2v12M10 7h10M10 12h10M10 17h10"/></symbol><symbol id="i-cut" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M8 8l12 10M8 16L20 6"/></symbol><symbol id="i-delete" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></symbol><symbol id="i-design" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 2-2s-1-1.5-.5-3S16 15 17 15a4 4 0 0 0 0-8c-1.5 0-3 .5-5-4z"/></symbol><symbol id="i-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"/></symbol><symbol id="i-emoji" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4 4 0 0 0 7 0"/><path d="M9 9h.01M15 9h.01"/></symbol><symbol id="i-envelope" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="1.5"/><path d="M3 7l9 7 9-7"/></symbol><symbol id="i-fields" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h6M7 14h10"/></symbol><symbol id="i-find" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l6 6"/></symbol><symbol id="i-fonts" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19L9 5l5 14M6 14h6"/><path d="M16 9h5M18.5 9v10"/></symbol><symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="5" r="1.6"/><circle cx="12" cy="5" r="1.6"/><circle cx="19" cy="5" r="1.6"/><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/><circle cx="5" cy="19" r="1.6"/><circle cx="12" cy="19" r="1.6"/><circle cx="19" cy="19" r="1.6"/></symbol><symbol id="i-grow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l5-12 5 12M6.5 14h5"/><path d="M19 4v6M16 7h6"/></symbol><symbol id="i-hash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4L7 20M17 4l-2 16M4 9h16M3 15h16"/></symbol><symbol id="i-header" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 8h16"/></symbol><symbol id="i-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 1-1 1.7v.5M12 17h.01"/></symbol><symbol id="i-highlight" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19l4-1 9-9-3-3-9 9z"/><path d="M4 22h16"/></symbol><symbol id="i-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol><symbol id="i-indent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M10 12h11M10 18h11"/><path d="M4 9l3 3-3 3"/></symbol><symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></symbol><symbol id="i-italic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4h8M6 20h8M14 4l-4 16"/></symbol><symbol id="i-keyboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol><symbol id="i-label" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></symbol><symbol id="i-line" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M8 8l4-4 4 4M8 16l4 4 4-4"/></symbol><symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol><symbol id="i-margins" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="1"/><rect x="8" y="6" width="8" height="12" stroke-dasharray="2 2"/></symbol><symbol id="i-merge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M4 12h16M12 4v16"/></symbol><symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol><symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></symbol><symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol><symbol id="i-move" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v10H3z"/><path d="M9 14h7M13 11l3 3-3 3"/></symbol><symbol id="i-multi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="9" height="16" rx="1"/><rect x="13" y="4" width="9" height="16" rx="1"/></symbol><symbol id="i-nav" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M5 8h2M5 12h2"/></symbol><symbol id="i-new" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M12 11v6M9 14h6"/></symbol><symbol id="i-numbers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h1v4M4 14h2l-2 3h2"/><path d="M10 7h10M10 17h10"/></symbol><symbol id="i-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol><symbol id="i-orientation" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="18" rx="1.5"/><path d="M18 9l3 3-3 3" transform="rotate(0)"/></symbol><symbol id="i-outdent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M10 12h11M10 18h11"/><path d="M7 9l-3 3 3 3"/></symbol><symbol id="i-page" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></symbol><symbol id="i-pagebreak" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16M4 20h16"/><path d="M4 12h16" stroke-dasharray="2 2"/></symbol><symbol id="i-paste" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="17" rx="2"/><rect x="9" y="2" width="6" height="4" rx="1"/></symbol><symbol id="i-picture" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-6-6-8 8"/></symbol><symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></symbol><symbol id="i-print" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/></symbol><symbol id="i-profile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol><symbol id="i-redo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></symbol><symbol id="i-rename" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M14 6l4 4"/></symbol><symbol id="i-replace" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="4"/><path d="M11 11l9 9M16 4h5v5"/></symbol><symbol id="i-rows" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M3 12h18"/></symbol><symbol id="i-ruler" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="8" width="20" height="8" rx="1"/><path d="M6 8v3M10 8v4M14 8v3M18 8v4"/></symbol><symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v13H5z"/><path d="M8 3v5h7V3M8 21v-6h8v6"/></symbol><symbol id="i-select" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 9-6 1-3 6z"/></symbol><symbol id="i-share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 10.8l7.6-3.6M8.2 13.2l7.6 3.6"/></symbol><symbol id="i-shrink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l5-12 5 12M6.5 14h5"/><path d="M16 7h6"/></symbol><symbol id="i-single" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="18" rx="1.5"/></symbol><symbol id="i-spacing" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 18h16M12 9v6M9 11l3-3 3 3M9 13l3 3 3-3"/></symbol><symbol id="i-spell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l4-10 4 10M5.5 13h5"/><path d="M15 9h6M15 14h6M15 19h6"/></symbol><symbol id="i-strike" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16"/><path d="M16 6.5C15 5 13.5 4 12 4 9 4 7.5 5.5 7.5 7.5c0 4 9 3 9 7.5 0 2-1.5 3.5-4.5 3.5-2 0-3.5-1-4.5-2.5"/></symbol><symbol id="i-sub" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l8 10M12 6l-8 10"/><path d="M15 19h5M17.5 16v3"/></symbol><symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol><symbol id="i-sup" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18L12 8M12 18L4 8"/><path d="M15 11h5M17.5 8v3"/></symbol><symbol id="i-symbol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19h14M7 5h10M9 5l-3 14M15 5l3 14"/></symbol><symbol id="i-table" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M3 10h18M3 15h18M9 4v16"/></symbol><symbol id="i-theme" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></symbol><symbol id="i-toc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M4 11h14M4 16h10"/><path d="M18 14l2 2-2 2"/></symbol><symbol id="i-track" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19l2-6 8-8 4 4-8 8z"/><path d="M4 21h16"/></symbol><symbol id="i-underline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v7a5 5 0 0 0 10 0V4"/><path d="M5 21h14"/></symbol><symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></symbol><symbol id="i-view" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol><symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></symbol><symbol id="i-watermark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20L20 4M7 4l13 13"/><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="2 3"/></symbol><symbol id="i-zoom" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l6 6M8 10.5h5"/></symbol></svg>
+<!-- ICONS:END -->
+
+<header class="titlebar">
+  <div class="tb-left">
+    <button id="btn-launcher" class="icon-btn" data-menu="apps" aria-label="Apps" title="Apps"><svg class="ico"><use href="#i-grid"/></svg></button>
+    <div class="brand" aria-label="Quadra Word">
+      <span class="logo" aria-hidden="true">Q</span>
+      <span class="brand-name">Quadra Word</span>
+    </div>
+    <label class="doc-title-wrap">
+      <span class="sr-only">Document name</span>
+      <input id="doc-title" type="text" value="Document 2" spellcheck="false" autocomplete="off">
+    </label>
+    <span id="save-status" class="save-status" role="status" aria-live="polite" data-ok="true">
+      <svg class="ico"><use href="#i-cloud"/></svg><span>Saved</span>
+    </span>
+  </div>
+  <div class="tb-right">
+    <button id="btn-theme" class="icon-btn" data-cmd="dark" aria-label="Switch dark or light theme" title="Dark / light"><svg class="ico"><use href="#i-moon"/></svg></button>
+    <button id="btn-profile" class="avatar" data-menu="profile" aria-label="Profile" title="Profile">Q</button>
+  </div>
+</header>
+
+<nav class="menubar" role="tablist" aria-label="Ribbon tabs">
+  <button role="tab" class="tab tab-file" id="tab-file" data-tab="file" aria-selected="false">File</button>
+  <button role="tab" class="tab" id="tab-home" data-tab="home" aria-selected="true" aria-controls="panel-home">Home</button>
+  <button role="tab" class="tab" id="tab-insert" data-tab="insert" aria-selected="false" aria-controls="panel-insert">Insert</button>
+  <button role="tab" class="tab" id="tab-design" data-tab="design" aria-selected="false" aria-controls="panel-design">Design</button>
+  <button role="tab" class="tab" id="tab-layout" data-tab="layout" aria-selected="false" aria-controls="panel-layout">Layout</button>
+  <button role="tab" class="tab" id="tab-references" data-tab="references" aria-selected="false" aria-controls="panel-references">References</button>
+  <button role="tab" class="tab" id="tab-mailings" data-tab="mailings" aria-selected="false" aria-controls="panel-mailings">Mailings</button>
+  <button role="tab" class="tab" id="tab-review" data-tab="review" aria-selected="false" aria-controls="panel-review">Review</button>
+  <button role="tab" class="tab" id="tab-view" data-tab="view" aria-selected="false" aria-controls="panel-view">View</button>
+  <button role="tab" class="tab" id="tab-help" data-tab="help" aria-selected="false" aria-controls="panel-help">Help</button>
+  <button id="ribbon-toggle" class="icon-btn ribbon-collapse" data-cmd="ribbon-collapse" aria-label="Collapse ribbon" title="Collapse the ribbon"><svg class="ico"><use href="#i-chevron"/></svg></button>
+</nav>
+
+<section class="ribbon" id="ribbon">
+
+  <!-- HOME -->
+  <div class="ribbon-panel" id="panel-home" data-panel="home" role="tabpanel" aria-labelledby="tab-home">
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="paste" title="Paste (Ctrl+V)"><svg class="ico"><use href="#i-paste"/></svg><span>Paste</span></button>
+        <div class="stack">
+          <button class="rs" data-cmd="cut" title="Cut (Ctrl+X)"><svg class="ico"><use href="#i-cut"/></svg><span>Cut</span></button>
+          <button class="rs" data-cmd="copy" title="Copy (Ctrl+C)"><svg class="ico"><use href="#i-copy"/></svg><span>Copy</span></button>
+          <button class="rs" data-na="Format Painter"><svg class="ico"><use href="#i-brush"/></svg><span>Format Painter</span></button>
+        </div>
+      </div>
+      <div class="glabel">Clipboard</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rs" data-cmd="undo" id="btn-undo" title="Undo (Ctrl+Z)"><svg class="ico"><use href="#i-undo"/></svg><span>Undo</span></button>
+        <button class="rs" data-cmd="redo" id="btn-redo" title="Redo (Ctrl+Y)"><svg class="ico"><use href="#i-redo"/></svg><span>Redo</span></button>
+      </div>
+      <div class="glabel">Undo</div>
+    </div>
+    <div class="group wide">
+      <div class="btns col">
+        <div class="row">
+          <button class="pick" data-menu="font" title="Font"><span id="font-name">Quadra Sans</span><svg class="ico sm"><use href="#i-chevron"/></svg></button>
+          <button class="pick small" data-menu="size" title="Font size"><span id="font-size">12</span><svg class="ico sm"><use href="#i-chevron"/></svg></button>
+          <button class="rs-ic" data-cmd="grow" title="Grow font"><svg class="ico"><use href="#i-grow"/></svg></button>
+          <button class="rs-ic" data-cmd="shrink" title="Shrink font"><svg class="ico"><use href="#i-shrink"/></svg></button>
+          <button class="rs-ic" data-cmd="clear-format" title="Clear formatting"><svg class="ico"><use href="#i-clear"/></svg></button>
+        </div>
+        <div class="row">
+          <button class="rs-ic" data-cmd="bold" data-mark="b" title="Bold (Ctrl+B)" aria-label="Bold"><svg class="ico"><use href="#i-bold"/></svg></button>
+          <button class="rs-ic" data-cmd="italic" data-mark="i" title="Italic (Ctrl+I)" aria-label="Italic"><svg class="ico"><use href="#i-italic"/></svg></button>
+          <button class="rs-ic" data-cmd="underline" data-mark="u" title="Underline (Ctrl+U)" aria-label="Underline"><svg class="ico"><use href="#i-underline"/></svg></button>
+          <button class="rs-ic" data-cmd="strike" data-mark="s" title="Strikethrough" aria-label="Strikethrough"><svg class="ico"><use href="#i-strike"/></svg></button>
+          <button class="rs-ic" data-cmd="sub" data-mark="sub" title="Subscript" aria-label="Subscript"><svg class="ico"><use href="#i-sub"/></svg></button>
+          <button class="rs-ic" data-cmd="sup" data-mark="sup" title="Superscript" aria-label="Superscript"><svg class="ico"><use href="#i-sup"/></svg></button>
+          <button class="rs-ic" data-menu="highlight" title="Text highlight"><svg class="ico"><use href="#i-highlight"/></svg></button>
+          <button class="rs-ic" data-menu="fontcolor" title="Font color"><svg class="ico"><use href="#i-color"/></svg></button>
+        </div>
+      </div>
+      <div class="glabel">Font</div>
+    </div>
+    <div class="group">
+      <div class="btns col">
+        <div class="row">
+          <button class="rs-ic" data-cmd="bullets" data-list="bullet" title="Bullets"><svg class="ico"><use href="#i-bullets"/></svg></button>
+          <button class="rs-ic" data-cmd="numbering" data-list="number" title="Numbering"><svg class="ico"><use href="#i-numbers"/></svg></button>
+          <button class="rs-ic" data-cmd="outdent" title="Decrease indent"><svg class="ico"><use href="#i-outdent"/></svg></button>
+          <button class="rs-ic" data-cmd="indent" title="Increase indent"><svg class="ico"><use href="#i-indent"/></svg></button>
+        </div>
+        <div class="row">
+          <button class="rs-ic" data-cmd="align" data-value="left" data-align="left" title="Align left"><svg class="ico"><use href="#i-al-left"/></svg></button>
+          <button class="rs-ic" data-cmd="align" data-value="center" data-align="center" title="Center"><svg class="ico"><use href="#i-al-center"/></svg></button>
+          <button class="rs-ic" data-cmd="align" data-value="right" data-align="right" title="Align right"><svg class="ico"><use href="#i-al-right"/></svg></button>
+          <button class="rs-ic" data-cmd="align" data-value="justify" data-align="justify" title="Justify"><svg class="ico"><use href="#i-al-justify"/></svg></button>
+          <button class="rs-ic" data-menu="line" title="Line spacing"><svg class="ico"><use href="#i-line"/></svg></button>
+        </div>
+      </div>
+      <div class="glabel">Paragraph</div>
+    </div>
+    <div class="group">
+      <div class="styles" role="group" aria-label="Styles">
+        <button class="style-chip" data-cmd="style" data-value="Normal" data-style="Normal"><span class="sc-sample st-normal">AaBbCc</span><span>Normal</span></button>
+        <button class="style-chip" data-cmd="style" data-value="Title" data-style="Title"><span class="sc-sample st-title">AaBb</span><span>Title</span></button>
+        <button class="style-chip" data-cmd="style" data-value="Heading 1" data-style="Heading 1"><span class="sc-sample st-heading-1">Heading</span><span>Heading 1</span></button>
+        <button class="style-chip" data-cmd="style" data-value="Heading 2" data-style="Heading 2"><span class="sc-sample st-heading-2">Heading</span><span>Heading 2</span></button>
+        <button class="style-chip" data-cmd="style" data-value="Heading 3" data-style="Heading 3"><span class="sc-sample st-heading-3">Heading</span><span>Heading 3</span></button>
+      </div>
+      <div class="glabel">Styles</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <div class="stack">
+          <button class="rs" data-cmd="find" title="Find (Ctrl+F)"><svg class="ico"><use href="#i-find"/></svg><span>Find</span></button>
+          <button class="rs" data-cmd="replace" title="Replace (Ctrl+H)"><svg class="ico"><use href="#i-replace"/></svg><span>Replace</span></button>
+          <button class="rs" data-cmd="select-all" title="Select all (Ctrl+A)"><svg class="ico"><use href="#i-select"/></svg><span>Select All</span></button>
+        </div>
+      </div>
+      <div class="glabel">Editing</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Dictate"><svg class="ico"><use href="#i-mic"/></svg><span>Dictate</span></button>
+      </div>
+      <div class="glabel">Voice</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Editor"><svg class="ico"><use href="#i-spell"/></svg><span>Editor</span></button>
+      </div>
+      <div class="glabel">Proofing</div>
+    </div>
+  </div>
+
+  <!-- INSERT -->
+  <div class="ribbon-panel" id="panel-insert" data-panel="insert" role="tabpanel" aria-labelledby="tab-insert" hidden>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="pagebreak"><svg class="ico"><use href="#i-pagebreak"/></svg><span>Page Break</span></button>
+      </div>
+      <div class="glabel">Pages</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-menu="table"><svg class="ico"><use href="#i-table"/></svg><span>Table</span></button>
+      </div>
+      <div class="glabel">Tables</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="picture"><svg class="ico"><use href="#i-picture"/></svg><span>Picture</span></button>
+        <button class="rb" data-na="Shapes"><svg class="ico"><use href="#i-share"/></svg><span>Shapes</span></button>
+      </div>
+      <div class="glabel">Illustrations</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="link"><svg class="ico"><use href="#i-link"/></svg><span>Link</span></button>
+        <button class="rb" data-na="Bookmarks"><svg class="ico"><use href="#i-edit"/></svg><span>Bookmarks</span></button>
+      </div>
+      <div class="glabel">Links</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="toc"><svg class="ico"><use href="#i-toc"/></svg><span>Table of Contents</span></button>
+      </div>
+      <div class="glabel">Table of Contents</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Online Video"><svg class="ico"><use href="#i-picture"/></svg><span>Online Video</span></button>
+      </div>
+      <div class="glabel">Media</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="New Comment"><svg class="ico"><use href="#i-comment"/></svg><span>New Comment</span></button>
+      </div>
+      <div class="glabel">Comments</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="header-footer"><svg class="ico"><use href="#i-header"/></svg><span>Header &amp; Footer</span></button>
+        <button class="rb" data-menu="pagenum"><svg class="ico"><use href="#i-hash"/></svg><span>Page Numbers</span></button>
+      </div>
+      <div class="glabel">Header &amp; Footer</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Equation"><svg class="ico"><use href="#i-hash"/></svg><span>Equation</span></button>
+        <button class="rb" data-menu="symbol"><svg class="ico"><use href="#i-symbol"/></svg><span>Symbol</span></button>
+      </div>
+      <div class="glabel">Symbols</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-menu="emoji"><svg class="ico"><use href="#i-emoji"/></svg><span>Emoji</span></button>
+      </div>
+      <div class="glabel">Emojis</div>
+    </div>
+  </div>
+
+  <!-- DESIGN (not in the reference screenshots; designed for Quadra) -->
+  <div class="ribbon-panel" id="panel-design" data-panel="design" role="tabpanel" aria-labelledby="tab-design" hidden>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-menu="theme"><svg class="ico"><use href="#i-design"/></svg><span>Themes</span></button>
+        <div class="stack">
+          <button class="rs" data-menu="design-fonts"><svg class="ico"><use href="#i-fonts"/></svg><span>Fonts</span></button>
+          <button class="rs" data-menu="design-colors"><svg class="ico"><use href="#i-accent"/></svg><span>Colors</span></button>
+        </div>
+      </div>
+      <div class="glabel">Document Formatting</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-menu="spacing"><svg class="ico"><use href="#i-spacing"/></svg><span>Paragraph Spacing</span></button>
+      </div>
+      <div class="glabel">Spacing</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-menu="watermark"><svg class="ico"><use href="#i-watermark"/></svg><span>Watermark</span></button>
+        <button class="rb" data-cmd="page-color"><svg class="ico"><use href="#i-color"/></svg><span>Page Color</span></button>
+        <button class="rb" data-na="Page Borders"><svg class="ico"><use href="#i-page"/></svg><span>Page Borders</span></button>
+      </div>
+      <div class="glabel">Page Background</div>
+    </div>
+  </div>
+
+  <!-- LAYOUT -->
+  <div class="ribbon-panel" id="panel-layout" data-panel="layout" role="tabpanel" aria-labelledby="tab-layout" hidden>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-menu="margins"><svg class="ico"><use href="#i-margins"/></svg><span>Margins</span></button>
+        <button class="rb" data-menu="orientation"><svg class="ico"><use href="#i-orientation"/></svg><span>Orientation</span></button>
+        <button class="rb" data-menu="papersize"><svg class="ico"><use href="#i-page"/></svg><span>Size</span></button>
+        <button class="rb" data-menu="columns"><svg class="ico"><use href="#i-columns"/></svg><span>Columns</span></button>
+        <button class="rb" data-menu="breaks"><svg class="ico"><use href="#i-pagebreak"/></svg><span>Breaks</span></button>
+        <button class="rb" data-na="Line Numbers"><svg class="ico"><use href="#i-hash"/></svg><span>Line Numbers</span></button>
+      </div>
+      <div class="glabel">Page Setup</div>
+    </div>
+    <div class="group">
+      <div class="btns col">
+        <div class="row"><span class="lbl">Indent Left</span><input class="num" id="indent-left" data-input="indent-left" value="0&quot;" aria-label="Indent left"></div>
+        <div class="row"><span class="lbl">Indent Right</span><input class="num" id="indent-right" data-input="indent-right" value="0&quot;" aria-label="Indent right"></div>
+      </div>
+      <div class="glabel">Indent</div>
+    </div>
+    <div class="group">
+      <div class="btns col">
+        <div class="row"><span class="lbl">Before</span><input class="num" id="space-before" data-input="space-before" value="0 pt" aria-label="Space before"></div>
+        <div class="row"><span class="lbl">After</span><input class="num" id="space-after" data-input="space-after" value="8 pt" aria-label="Space after"></div>
+      </div>
+      <div class="glabel">Spacing</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="page-color"><svg class="ico"><use href="#i-color"/></svg><span>Page Color</span></button>
+        <button class="rb" data-na="Page Borders"><svg class="ico"><use href="#i-page"/></svg><span>Page Borders</span></button>
+      </div>
+      <div class="glabel">Page Background</div>
+    </div>
+  </div>
+
+  <!-- REFERENCES -->
+  <div class="ribbon-panel" id="panel-references" data-panel="references" role="tabpanel" aria-labelledby="tab-references" hidden>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="toc"><svg class="ico"><use href="#i-toc"/></svg><span>Insert Table of Contents</span></button>
+        <button class="rb" data-na="Update Table of Contents"><svg class="ico"><use href="#i-history"/></svg><span>Update Table</span></button>
+      </div>
+      <div class="glabel">Table of Contents</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Insert Footnote"><svg class="ico"><use href="#i-hash"/></svg><span>Insert Footnote</span></button>
+        <button class="rs" data-na="Insert Endnote"><svg class="ico"><use href="#i-hash"/></svg><span>Insert Endnote</span></button>
+      </div>
+      <div class="glabel">Footnotes</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="find"><svg class="ico"><use href="#i-find"/></svg><span>Search</span></button>
+      </div>
+      <div class="glabel">Insights</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Citations"><svg class="ico"><use href="#i-comment"/></svg><span>Citations</span></button>
+      </div>
+      <div class="glabel">Citations &amp; Bibliography</div>
+    </div>
+  </div>
+
+  <!-- MAILINGS (designed for Quadra: text-based field insertion) -->
+  <div class="ribbon-panel" id="panel-mailings" data-panel="mailings" role="tabpanel" aria-labelledby="tab-mailings" hidden>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Envelopes"><svg class="ico"><use href="#i-envelope"/></svg><span>Envelopes</span></button>
+        <button class="rb" data-na="Labels"><svg class="ico"><use href="#i-label"/></svg><span>Labels</span></button>
+      </div>
+      <div class="glabel">Create</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Start Mail Merge"><svg class="ico"><use href="#i-merge"/></svg><span>Start Mail Merge</span></button>
+      </div>
+      <div class="glabel">Start Mail Merge</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-menu="fields"><svg class="ico"><use href="#i-fields"/></svg><span>Insert Field</span></button>
+        <button class="rb" data-na="Preview Results"><svg class="ico"><use href="#i-view"/></svg><span>Preview Results</span></button>
+      </div>
+      <div class="glabel">Write &amp; Insert Fields</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Finish &amp; Merge"><svg class="ico"><use href="#i-save"/></svg><span>Finish &amp; Merge</span></button>
+      </div>
+      <div class="glabel">Finish</div>
+    </div>
+  </div>
+
+  <!-- REVIEW -->
+  <div class="ribbon-panel" id="panel-review" data-panel="review" role="tabpanel" aria-labelledby="tab-review" hidden>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Editor"><svg class="ico"><use href="#i-spell"/></svg><span>Editor</span></button>
+        <button class="rb" data-na="Spelling dictionary"><svg class="ico"><use href="#i-spell"/></svg><span>Spelling &amp; Grammar</span></button>
+        <button class="rb" data-cmd="word-count"><svg class="ico"><use href="#i-count"/></svg><span>Word Count</span></button>
+      </div>
+      <div class="glabel">Proofing</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Check Accessibility"><svg class="ico"><use href="#i-check"/></svg><span>Check Accessibility</span></button>
+      </div>
+      <div class="glabel">Accessibility</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Translate"><svg class="ico"><use href="#i-share"/></svg><span>Translate</span></button>
+      </div>
+      <div class="glabel">Translate</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="New Comment"><svg class="ico"><use href="#i-comment"/></svg><span>New Comment</span></button>
+        <button class="rb" data-na="Show Comments"><svg class="ico"><use href="#i-comment"/></svg><span>Show Comments</span></button>
+      </div>
+      <div class="glabel">Comments</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-na="Track Changes"><svg class="ico"><use href="#i-track"/></svg><span>Track Changes</span></button>
+      </div>
+      <div class="glabel">Tracking</div>
+    </div>
+  </div>
+
+  <!-- VIEW -->
+  <div class="ribbon-panel" id="panel-view" data-panel="view" role="tabpanel" aria-labelledby="tab-view" hidden>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="view-single" id="view-single" data-view-btn="single"><svg class="ico"><use href="#i-single"/></svg><span>One Page</span></button>
+        <button class="rb" data-cmd="view-multi" id="view-multi" data-view-btn="multi"><svg class="ico"><use href="#i-multi"/></svg><span>Multiple Pages</span></button>
+        <button class="rb" data-na="Reading View"><svg class="ico"><use href="#i-view"/></svg><span>Reading View</span></button>
+      </div>
+      <div class="glabel">Document Views</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="pick" data-menu="zoom" title="Zoom"><span id="view-zoom-val">100%</span><svg class="ico sm"><use href="#i-chevron"/></svg></button>
+        <button class="rb" data-cmd="zoom100"><svg class="ico"><use href="#i-zoom"/></svg><span>100%</span></button>
+      </div>
+      <div class="glabel">Zoom</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="ruler" data-toggle="ruler"><svg class="ico"><use href="#i-ruler"/></svg><span>Ruler</span></button>
+        <button class="rb" data-cmd="nav" data-toggle="nav"><svg class="ico"><use href="#i-nav"/></svg><span>Navigation</span></button>
+        <button class="rb" data-cmd="header-footer"><svg class="ico"><use href="#i-header"/></svg><span>Header &amp; Footer</span></button>
+      </div>
+      <div class="glabel">Show</div>
+    </div>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="dark" data-toggle="dark"><svg class="ico"><use href="#i-theme"/></svg><span>Dark Mode</span></button>
+        <button class="rb" data-cmd="canvas"><svg class="ico"><use href="#i-sun"/></svg><span>Switch Background</span></button>
+      </div>
+      <div class="glabel">Dark Mode</div>
+    </div>
+  </div>
+
+  <!-- HELP -->
+  <div class="ribbon-panel" id="panel-help" data-panel="help" role="tabpanel" aria-labelledby="tab-help" hidden>
+    <div class="group">
+      <div class="btns">
+        <button class="rb" data-cmd="help"><svg class="ico"><use href="#i-help"/></svg><span>Help</span></button>
+        <button class="rb" data-na="Contact Support"><svg class="ico"><use href="#i-profile"/></svg><span>Contact Support</span></button>
+        <button class="rb" data-na="Feedback"><svg class="ico"><use href="#i-comment"/></svg><span>Feedback</span></button>
+        <button class="rb" data-cmd="shortcuts"><svg class="ico"><use href="#i-keyboard"/></svg><span>Keyboard Shortcuts</span></button>
+        <button class="rb" data-cmd="whatsnew"><svg class="ico"><use href="#i-sun"/></svg><span>What's New</span></button>
+      </div>
+      <div class="glabel">Help</div>
+    </div>
+  </div>
+</section>
+
+<main class="workspace" id="workspace">
+  <aside class="nav-pane" id="nav-pane" aria-label="Navigation" hidden>
+    <div class="nav-head"><span>Navigation</span><button class="icon-btn" data-cmd="nav" aria-label="Close navigation"><svg class="ico"><use href="#i-close"/></svg></button></div>
+    <ol id="nav-list" class="nav-list"></ol>
+  </aside>
+  <div class="canvas" id="canvas">
+    <div class="ruler" id="ruler" aria-hidden="true"></div>
+    <div class="sheet-wrap" id="sheet-wrap">
+      <div class="sheet" id="sheet">
+        <div class="hf hf-header" id="hf-header" hidden></div>
+        <div class="watermark" id="watermark" hidden></div>
+        <div id="doc-body" class="doc-body" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Document body" spellcheck="false"></div>
+        <div class="hf hf-footer" id="hf-footer" hidden></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="statusbar">
+  <span id="st-page" class="st-text">Page 1 of 1</span>
+  <button id="st-words" class="st-btn" data-cmd="word-count">0 words</button>
+  <span class="st-text">English (U.S.)</span>
+  <span class="grow"></span>
+  <button id="st-pageview" class="st-btn icon" data-cmd="view-toggle" aria-label="Toggle page view"><svg class="ico"><use href="#i-single"/></svg></button>
+  <button class="st-btn icon" data-cmd="zoom-out" aria-label="Zoom out"><svg class="ico"><use href="#i-minus"/></svg></button>
+  <input id="st-slider" type="range" min="50" max="200" step="5" value="100" aria-label="Zoom">
+  <button id="st-zoom-val" class="st-btn" data-menu="zoom">100%</button>
+  <button class="st-btn icon" data-cmd="zoom-in" aria-label="Zoom in"><svg class="ico"><use href="#i-plus"/></svg></button>
+  <button class="st-btn" data-cmd="fit">Fit</button>
+  <button id="st-theme" class="st-btn icon" data-cmd="dark" aria-label="Switch theme"><svg class="ico"><use href="#i-theme"/></svg></button>
+</footer>
+
+<!-- Backstage (File tab) -->
+<section id="backstage" class="backstage" hidden aria-label="File">
+  <div class="bs-side">
+    <button class="bs-back" data-cmd="bs-close"><svg class="ico"><use href="#i-back"/></svg><span>Back</span></button>
+    <nav id="bs-list" class="bs-list"></nav>
+  </div>
+  <div id="bs-pane" class="bs-pane"></div>
+</section>
+
+<!-- Generic dialog (modal or modeless) -->
+<dialog id="dlg" class="dlg" aria-labelledby="dlg-title">
+  <div class="dlg-head"><h2 id="dlg-title"></h2></div>
+  <div id="dlg-body" class="dlg-body"></div>
+  <div id="dlg-actions" class="dlg-actions"></div>
+</dialog>
+
+<!-- Context menus (positioned by ui.js, flipped upward near the bottom edge) -->
+<div id="menu" class="menu" role="menu" hidden></div>
+
+<input id="file-img" type="file" accept="image/*" hidden>
+<input id="color-page" type="color" value="#ffffff" hidden>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="engine.js"></script>
+<script src="script.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
