@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quadra Office</title>
+  <link rel="stylesheet" href="home.css">
+</head>
+<body>
+
+  <!-- ऊपर की बार (ऐप खुलने पर दिखेगी) -->
+  <header class="topbar" id="topbar" hidden>
+    <button class="btn" id="backBtn">← होम</button>
+    <span class="app-title" id="appTitle"></span>
+    <a class="btn btn-outline" id="openNew" target="_blank" rel="noopener">नई टैब में ↗</a>
+  </header>
+
+  <!-- होम पेज -->
+  <main class="home" id="homeView">
+    <section class="hero">
+      <h1>Quadra Office</h1>
+      <p>कोई ऐप चुनें और काम शुरू करें</p>
+    </section>
+    <section class="grid" id="appGrid"></section>
+  </main>
+
+  <!-- ऐप का कंटेनर -->
+  <main class="app-view" id="appView" hidden></main>
+
+  <script src="home.js"></script>
+</body>
+</html>
