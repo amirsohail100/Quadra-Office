@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quadra Office - Book 1</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- Title bar -->
+    <header class="titlebar">
+      <button class="icon-btn waffle" title="Apps" aria-label="Apps"><span class="waffle-grid"></span></button>
+      <div class="app-logo" title="Quadra Office">Q</div>
+      <div class="doc-title">
+        <span id="docName">Book 1</span>
+        <svg class="cloud-icon" viewBox="0 0 24 24" width="16" height="16">
+          <path d="M19.35 10.04A7 7 0 0 0 5.64 8.6 5.5 5.5 0 0 0 6.5 19H19a4.5 4.5 0 0 0 .35-8.96z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <circle cx="18" cy="17" r="4" fill="#107C41"/>
+        </svg>
+      </div>
+
+      <div class="search-box">
+        <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M14.5 14.5L20 20" stroke="currentColor" stroke-width="1.8"/></svg>
+        <input type="text" placeholder="Search for tools, help, and more (Alt + Q)" />
+      </div>
+
+      <div class="title-right">
+        <button class="icon-btn" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="18" height="18"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.5l1.6 2.6 3-.6.6 3 2.6 1.6-1.3 2.8 1.3 2.8-2.6 1.6-.6 3-3-.6L12 21.5l-1.6-2.6-3 .6-.6-3-2.6-1.6 1.3-2.8-1.3-2.8 2.6-1.6.6-3 3 .6z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+        </button>
+        <div class="avatar" title="Account"><div class="avatar-img"></div></div>
+      </div>
+    </header>
+
+    <!-- Tabs -->
+    <nav class="menubar">
+      <div class="tabs" role="tablist">
+        <button class="tab" data-tab="File">File</button>
+        <button class="tab active" data-tab="Home">Home</button>
+        <button class="tab" data-tab="Insert">Insert</button>
+        <button class="tab" data-tab="Share">Share</button>
+        <button class="tab" data-tab="Page Layout">Page Layout</button>
+        <button class="tab" data-tab="Formulas">Formulas</button>
+        <button class="tab" data-tab="Data">Data</button>
+        <button class="tab" data-tab="Review">Review</button>
+        <button class="tab" data-tab="View">View</button>
+        <button class="tab" data-tab="Help">Help</button>
+        <button class="tab" data-tab="Draw">Draw</button>
+      </div>
+      <div class="menu-actions">
+        <button class="pill-btn">Comments</button>
+        <button class="pill-btn icon-only" title="Activity" aria-label="Activity">~</button>
+        <button class="pill-btn" title="Editing mode">Editing <span class="caret">&#9662;</span></button>
+        <button class="share-btn">Share <span class="caret">&#9662;</span></button>
+      </div>
+    </nav>
+
+    <!-- Ribbon (filled by script.js per tab) -->
+    <section class="ribbon" id="ribbon"></section>
+
+    <!-- Formula bar -->
+    <div class="formula-bar">
+      <div class="name-box">
+        <input id="nameBox" type="text" value="A1" spellcheck="false" />
+        <span class="caret">&#9662;</span>
+      </div>
+      <div class="fx-group">
+        <span class="fx-btn dim">&#10005;</span>
+        <span class="fx-btn dim">&#10003;</span>
+        <span class="fx-btn fx-label"><i>f</i><sub>x</sub></span>
+      </div>
+      <input id="formulaInput" class="formula-input" type="text" spellcheck="false" />
+    </div>
+
+    <!-- Infinite grid: canvas is sticky, sizer gives the scroll range -->
+    <main class="grid-wrap" id="gridWrap">
+      <div class="sizer" id="sizer"></div>
+      <canvas id="canvas"></canvas>
+      <input id="cellEditor" class="cell-editor" type="text" autocomplete="off" />
+    </main>
+
+    <!-- Sheet tabs -->
+    <footer class="sheet-bar">
+      <button class="sheet-nav" title="All sheets" aria-label="All sheets">&#9776;</button>
+      <div class="sheet-tabs"><button class="sheet-tab active">Sheet1</button></div>
+      <button class="add-sheet" title="Add sheet" aria-label="Add sheet">+</button>
+    </footer>
+
+    <!-- Status bar -->
+    <div class="status-bar">
+      <div>Workbook Statistics</div>
+      <div class="status-right">
+        <span class="sb-zoom-out">&#8722;</span>
+        <div class="zoom-box"><span>100%</span><span class="caret small">&#9662;</span></div>
+        <span>+</span>
+      </div>
+    </div>
+  </div>
+
+  <input type="color" id="colorPicker" style="display:none" />
+  <div class="toast" id="toast"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
