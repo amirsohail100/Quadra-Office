@@ -1,0 +1,21 @@
+{
+  "name": "quadra-office",
+  "version": "1.0.0",
+  "description": "Quadra Office desktop edition",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.quadra.office",
+    "productName": "Quadra Office",
+    "files": ["main.js", "static/**/*"],
+    "win": { "target": "portable" },
+    "directories": { "output": "dist" }
+  }
+}
