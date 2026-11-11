@@ -1,72 +1,72 @@
 // ============================================
-// यहां अपने ऐप्स की लिस्ट है।
-// अगर आपकी फाइल का नाम excel.html है तो path को "excel/excel.html" कर दें।
+// App list. Each app lives in its own folder.
+// If your main file is not index.html, change the path.
+// Example: "excel/excel.html"
 // ============================================
 const APPS = [
   {
     id: "word",
     name: "Word",
-    desc: "डॉक्यूमेंट लिखें, फॉर्मेट करें और सेव करें",
+    desc: "Write, format and save documents",
     path: "word/index.html",
-    icon: "W",
+    letter: "W",
     color: "#2b579a"
   },
   {
     id: "excel",
     name: "Excel",
-    desc: "स्प्रेडशीट, फॉर्मूले और डेटा का हिसाब रखें",
+    desc: "Spreadsheets, formulas and data",
     path: "excel/index.html",
-    icon: "X",
+    letter: "X",
     color: "#217346"
   },
   {
     id: "powerpoint",
     name: "PowerPoint",
-    desc: "प्रेजेंटेशन और स्लाइड्स बनाएं",
+    desc: "Create presentations and slides",
     path: "powerpoint/index.html",
-    icon: "P",
+    letter: "P",
     color: "#d24726"
   },
   {
     id: "onenote",
     name: "OneNote",
-    desc: "नोट्स लिखें और अपने विचार व्यवस्थित करें",
+    desc: "Take notes and organise ideas",
     path: "onenote/index.html",
-    icon: "N",
+    letter: "N",
     color: "#7719aa"
   }
 ];
 
 const homeView = document.getElementById("homeView");
 const appView = document.getElementById("appView");
+const nav = document.getElementById("nav");
 const topbar = document.getElementById("topbar");
 const appTitle = document.getElementById("appTitle");
 const openNew = document.getElementById("openNew");
 const backBtn = document.getElementById("backBtn");
 const appGrid = document.getElementById("appGrid");
+const brandHome = document.getElementById("brandHome");
 
-// हर ऐप का iframe एक बार बनता है और दोबारा खोलने पर उसका काम सुरक्षित रहता है
+// Each app's iframe is created once and kept alive, so work is not lost when switching
 const frames = {};
 
-// होम पेज के कार्ड बनाएं
 function renderHome() {
   appGrid.innerHTML = "";
   APPS.forEach(app => {
-    const card = document.createElement("button");
-    card.className = "card";
-    card.innerHTML = `
-      <div class="card-icon" style="background:${app.color}">${app.icon}</div>
-      <h2>${app.name}</h2>
-      <p>${app.desc}</p>
+    const btn = document.createElement("button");
+    btn.className = "app-link";
+    btn.innerHTML = `
+      <span class="app-icon" style="background:${app.color}">${app.letter}</span>
+      <span class="label">${app.name}</span>
     `;
-    card.addEventListener("click", () => {
+    btn.addEventListener("click", () => {
       location.hash = app.id;
     });
-    appGrid.appendChild(card);
+    appGrid.appendChild(btn);
   });
 }
 
-// ऐप का iframe लाएं (नहीं है तो बनाएं)
 function getFrame(app) {
   if (!frames[app.id]) {
     const frame = document.createElement("iframe");
@@ -81,19 +81,21 @@ function getFrame(app) {
 
 function showHome() {
   homeView.hidden = false;
+  nav.hidden = false;
   topbar.hidden = true;
   appView.hidden = true;
   document.title = "Quadra Office";
-  Object.values(frames).forEach(f => f.hidden = true);
+  Object.values(frames).forEach(f => (f.hidden = true));
 }
 
 function showApp(app) {
   homeView.hidden = true;
+  nav.hidden = true;
   topbar.hidden = false;
   appView.hidden = false;
-  appTitle.textContent = app.name;
+  appTitle.textContent = app.name + " \u00B7 Quadra Office";
   openNew.href = app.path;
-  document.title = `${app.name} · Quadra Office`;
+  document.title = `${app.name} \u00B7 Quadra Office`;
 
   APPS.forEach(a => {
     if (frames[a.id]) frames[a.id].hidden = a.id !== app.id;
@@ -101,15 +103,26 @@ function showApp(app) {
   getFrame(app).hidden = false;
 }
 
-// URL के hash (#excel, #word आदि) के हिसाब से व्यू दिखाएं
+// #word, #excel, #powerpoint, #onenote open the app. Empty hash shows home.
 function route() {
   const id = location.hash.replace("#", "");
   const app = APPS.find(a => a.id === id);
-  app ? showApp(app) : showHome();
+  if (app) {
+    showApp(app);
+  } else {
+    showHome();
+  }
 }
 
 backBtn.addEventListener("click", () => {
   location.hash = "";
+  window.scrollTo(0, 0);
+});
+
+brandHome.addEventListener("click", e => {
+  e.preventDefault();
+  location.hash = "";
+  window.scrollTo(0, 0);
 });
 
 window.addEventListener("hashchange", route);
