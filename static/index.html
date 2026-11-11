@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="hi">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,23 +8,63 @@
 </head>
 <body>
 
-  <!-- ऊपर की बार (ऐप खुलने पर दिखेगी) -->
-  <header class="topbar" id="topbar" hidden>
-    <button class="btn" id="backBtn">← होम</button>
-    <span class="app-title" id="appTitle"></span>
-    <a class="btn btn-outline" id="openNew" target="_blank" rel="noopener">नई टैब में ↗</a>
+  <!-- Top navigation (home page) -->
+  <header class="nav" id="nav">
+    <div class="nav-left">
+      <a class="brand" href="#" id="brandHome">
+        <span class="brand-mark"></span>
+        <span class="brand-name">Quadra</span>
+      </a>
+      <span class="brand-divider"></span>
+      <span class="brand-product">Quadra Office</span>
+      <nav class="nav-links">
+        <a href="#apps">Apps</a>
+        <a href="#about">About</a>
+        <a href="#about">Education</a>
+      </nav>
+    </div>
+    <div class="nav-right">
+      <span class="avatar" title="Quadra">QO</span>
+    </div>
   </header>
 
-  <!-- होम पेज -->
-  <main class="home" id="homeView">
+  <!-- App toolbar (shown when an app is open) -->
+  <header class="topbar" id="topbar" hidden>
+    <button class="btn" id="backBtn">&larr; Home</button>
+    <span class="app-title" id="appTitle"></span>
+    <a class="btn btn-outline" id="openNew" target="_blank" rel="noopener">Open in new tab &#8599;</a>
+  </header>
+
+  <!-- Home view -->
+  <main id="homeView">
     <section class="hero">
-      <h1>Quadra Office</h1>
-      <p>कोई ऐप चुनें और काम शुरू करें</p>
+      <div class="hero-text">
+        <h1>Quadra Office</h1>
+        <p>Create your best work on all your devices, using the tools you need for study and work. Open an app below to start.</p>
+        <div class="hero-buttons">
+          <a class="btn-hero" href="#apps">Open apps</a>
+          <a class="btn-hero" href="#about">About this project</a>
+        </div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="tile tile-word">W</div>
+        <div class="tile tile-excel">X</div>
+        <div class="tile tile-ppt">P</div>
+        <div class="tile tile-one">N</div>
+      </div>
     </section>
-    <section class="grid" id="appGrid"></section>
+
+    <section class="apps" id="apps">
+      <h2>Apps</h2>
+      <div class="app-row" id="appGrid"></div>
+    </section>
+
+    <footer class="footer" id="about">
+      <p><strong>Quadra Office</strong> is an educational project built as part of the Quadra brand. It is a learning tool that shows how office-style applications can be built with HTML, CSS and JavaScript, and packaged as a desktop app with Electron.</p>
+    </footer>
   </main>
 
-  <!-- ऐप का कंटेनर -->
+  <!-- App container -->
   <main class="app-view" id="appView" hidden></main>
 
   <script src="home.js"></script>
