@@ -1,7 +1,8 @@
 // ============================================
 // App list. Each app lives in its own folder.
+// Icon lookup order for id "word":
+//   assets/word.svg  ->  assets/word.png  ->  default letter tile
 // If your main file is not index.html, change the path.
-// Example: "excel/excel.html"
 // ============================================
 const APPS = [
   {
@@ -51,15 +52,50 @@ const brandHome = document.getElementById("brandHome");
 // Each app's iframe is created once and kept alive, so work is not lost when switching
 const frames = {};
 
+// Build an app icon: custom SVG/PNG from assets/ if present, otherwise the default letter tile
+function makeIcon(app) {
+  const box = document.createElement("span");
+  box.className = "app-icon";
+  box.style.background = app.color;
+
+  const letter = document.createElement("span");
+  letter.textContent = app.letter;
+  box.appendChild(letter);
+
+  const sources = [`assets/${app.id}.svg`, `assets/${app.id}.png`];
+  let index = 0;
+
+  const img = document.createElement("img");
+  img.className = "app-img";
+  img.alt = app.name;
+  img.onload = () => { letter.hidden = true; };
+  img.onerror = () => {
+    index++;
+    if (index < sources.length) {
+      img.src = sources[index];
+    } else {
+      img.remove(); // no custom file found, keep the default letter
+    }
+  };
+  img.src = sources[0];
+  box.appendChild(img);
+
+  return box;
+}
+
 function renderHome() {
   appGrid.innerHTML = "";
   APPS.forEach(app => {
     const btn = document.createElement("button");
     btn.className = "app-link";
-    btn.innerHTML = `
-      <span class="app-icon" style="background:${app.color}">${app.letter}</span>
-      <span class="label">${app.name}</span>
-    `;
+
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = app.name;
+
+    btn.appendChild(makeIcon(app));
+    btn.appendChild(label);
+
     btn.addEventListener("click", () => {
       location.hash = app.id;
     });
