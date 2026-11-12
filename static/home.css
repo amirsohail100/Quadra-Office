@@ -2,7 +2,7 @@
 [hidden] { display: none !important; }
 
 :root {
-  --nav-h: 48px;
+  --nav-h: 56px;
   --dark: #1b1b1b;
   --blue: #0a4f8f;
   --blue-hover: #0c5fa8;
@@ -34,7 +34,7 @@ body {
 }
 .nav-left, .nav-right { display: flex; align-items: center; gap: 16px; }
 .brand { display: flex; align-items: center; gap: 8px; color: #fff; text-decoration: none; font-weight: 600; }
-.brand-logo { height: 32px; width: auto; display: block; }
+.brand-logo { height: 36px; width: auto; display: block; }
 .brand-divider { width: 1px; height: 18px; background: #555; }
 .brand-product { font-weight: 600; }
 .nav-links { display: flex; gap: 18px; margin-left: 12px; }
@@ -48,33 +48,54 @@ body {
   font-size: 12px;
 }
 
-/* ---------- Hero (background image is optional) ---------- */
+/* ---------- Hero ---------- */
 .hero {
   position: relative;
+  min-height: 420px;
+  overflow: hidden;
+  color: #fff;
+  background: #2a2d33;           /* fallback if no image is found */
+  display: flex;
+  align-items: center;
+}
+
+/* Background image: hidden until it loads successfully */
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0;
+  transition: opacity .4s ease;
+  z-index: 0;
+}
+.hero.has-bg .hero-bg { opacity: 1; }
+
+/* Light shade so the text stays readable. Kept soft so the image is still visible */
+.hero-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(90deg, rgba(0,0,0,.45) 0%, rgba(0,0,0,.15) 60%, rgba(0,0,0,0) 100%);
+  pointer-events: none;
+}
+.hero.no-bg .hero-shade { display: none; }
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  min-height: 420px;
   padding: 48px 6vw;
-  color: #fff;
-  background:
-    url("assets/background.png") center / cover no-repeat,
-    linear-gradient(120deg, #2a2d33 0%, #1f2227 60%, #16181c 100%);
 }
-/* Dark overlay so text stays readable on any background image */
-.hero::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  pointer-events: none;
-}
-.hero > * { position: relative; z-index: 1; }
-
 .hero-text { max-width: 480px; }
 .hero h1 { font-size: 2.6rem; font-weight: 600; margin-bottom: 14px; }
-.hero p { font-size: 1rem; line-height: 1.6; margin-bottom: 24px; color: #e6e6e6; }
+.hero p { font-size: 1rem; line-height: 1.6; margin-bottom: 24px; color: #f0f0f0; }
 .hero-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 420px; }
 .btn-hero {
   display: block;
@@ -98,6 +119,21 @@ body {
   font-weight: 700;
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 14px 30px rgba(0,0,0,.35);
+  overflow: hidden;
+}
+
+/* जब कस्टम इमेज लोड हो जाए, तो टाइल का रंग और शैडो हट जाएं */
+.tile.has-img {
+  background: transparent;
+  box-shadow: none;
+}
+.tile-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 .tile-word  { background: #2b579a; left: 40px;  top: 60px;  transform: rotate(-8deg); }
 .tile-excel { background: #217346; left: 180px; top: 150px; transform: rotate(6deg); }
@@ -139,7 +175,6 @@ body {
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
 }
-/* Custom image covers the default letter tile when it loads */
 .app-img {
   position: absolute;
   inset: 0;
@@ -204,7 +239,7 @@ body {
 
 @media (max-width: 800px) {
   .nav-links { display: none; }
-  .hero { flex-direction: column; text-align: left; }
+  .hero-content { flex-direction: column; align-items: flex-start; }
   .hero-art { display: none; }
   .hero h1 { font-size: 2rem; }
 }
