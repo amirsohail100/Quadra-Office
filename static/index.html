@@ -8,11 +8,11 @@
 </head>
 <body>
 
-  <!-- Top navigation (home page) -->
+  <!-- Top navigation -->
   <header class="nav" id="nav">
     <div class="nav-left">
       <a class="brand" href="#" id="brandHome">
-        <img class="brand-logo" src="assets\logo.svg" alt="Quadra logo" onerror="this.remove()">
+        <img class="brand-logo" src="assets/logo.svg" alt="Quadra logo" onerror="this.remove()">
         <span class="brand-name">Quadra</span>
       </a>
       <span class="brand-divider"></span>
@@ -37,20 +37,25 @@
 
   <!-- Home view -->
   <main id="homeView">
-    <section class="hero">
-      <div class="hero-text">
-        <h1>Quadra Office</h1>
-        <p>Create your best work on all your devices, using the tools you need for study and work. Open an app below to start.</p>
-        <div class="hero-buttons">
-          <a class="btn-hero" href="#apps">Open apps</a>
-          <a class="btn-hero" href="#about">About this project</a>
+    <section class="hero" id="hero">
+      <img class="hero-bg" id="heroBg" alt="" aria-hidden="true">
+      <div class="hero-shade" aria-hidden="true"></div>
+
+      <div class="hero-content">
+        <div class="hero-text">
+          <h1>Quadra Office</h1>
+          <p>Create your best work on all your devices, using the tools you need for study and work. Open an app below to start.</p>
+          <div class="hero-buttons">
+            <a class="btn-hero" href="#apps">Open apps</a>
+            <a class="btn-hero" href="#about">About this project</a>
+          </div>
         </div>
-      </div>
-      <div class="hero-art" aria-hidden="true">
-        <div class="tile tile-word"></div>
-        <div class="tile tile-excel"></div>
-        <div class="tile tile-ppt">P</div>
-        <div class="tile tile-one">N</div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="tile tile-word" data-app="word">W</div>
+          <div class="tile tile-excel" data-app="excel">X</div>
+          <div class="tile tile-ppt" data-app="powerpoint">P</div>
+          <div class="tile tile-one" data-app="onenote">N</div>
+        </div>
       </div>
     </section>
 
