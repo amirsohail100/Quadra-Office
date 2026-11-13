@@ -1,4 +1,3 @@
-import re
 import time
 from pathlib import Path
 from typing import Literal
@@ -6,12 +5,22 @@ from typing import Literal
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+
+from schema.payload import (
+    APP_TITLES,
+    TOOLBARS,
+    AppUI,
+    CellUpdateRequest,
+    CellUpdateResponse,
+    ThemeName,
+    UIComponent,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
-app = FastAPI(title="Quadra Office", version="0.1.0")
+app = FastAPI(title="Quadra Office", version="0.2.0")
+
 
 # ---------------- Middleware ----------------
 
@@ -31,69 +40,9 @@ async def add_timing(request: Request, call_next):
     return response
 
 
-# ---------------- Schemas ----------------
+# ---------------- Helpers ----------------
 
-AppId = Literal["word", "excel", "powerpoint", "onenote"]
-CELL_REF = re.compile(r"^[A-Z]{1,3}[1-9][0-9]{0,6}$")
-
-
-class UIComponent(BaseModel):
-    id: str = Field(min_length=1, max_length=64)
-    type: Literal["button", "input", "menu", "panel", "toolbar"]
-    label: str = Field(min_length=1, max_length=100)
-    enabled: bool = True
-
-
-class AppUI(BaseModel):
-    app_id: AppId
-    title: str
-    theme: Literal["light", "dark"] = "light"
-    toolbar: list[str] = []
-    components: list[UIComponent] = []
-
-
-class CellUpdate(BaseModel):
-    cell: str = Field(description="Cell reference such as A1 or C12")
-    value: int | float | str | None = None
-
-    @field_validator("cell")
-    @classmethod
-    def check_cell(cls, v: str) -> str:
-        v = v.strip().upper()
-        if not CELL_REF.match(v):
-            raise ValueError("cell must look like A1 or C12")
-        return v
-
-
-class CellUpdateRequest(BaseModel):
-    sheet: str = Field(default="Sheet1", min_length=1, max_length=50)
-    updates: list[CellUpdate] = Field(min_length=1, max_length=500)
-
-
-class CellUpdateResponse(BaseModel):
-    ok: bool
-    sheet: str
-    saved: int
-
-
-# ---------------- UI definitions ----------------
-
-APP_TITLES = {
-    "word": "Quadra Word",
-    "excel": "Quadra Excel",
-    "powerpoint": "Quadra PowerPoint",
-    "onenote": "Quadra OneNote",
-}
-
-TOOLBARS = {
-    "word": ["Home", "Insert", "Design", "Layout", "References", "Review", "View"],
-    "excel": ["Home", "Insert", "Formulas", "Data", "Review", "View"],
-    "powerpoint": ["Home", "Insert", "Design", "Transitions", "Animations", "Slide Show"],
-    "onenote": ["Home", "Insert", "Draw", "History", "Review", "View"],
-}
-
-
-def build_ui(app_id: AppId, theme: str) -> AppUI:
+def build_ui(app_id: str, theme: ThemeName) -> AppUI:
     return AppUI(
         app_id=app_id,
         title=APP_TITLES[app_id],
@@ -114,7 +63,7 @@ def health() -> dict:
 
 
 @app.get("/api/excel", response_model=AppUI)
-def excel_ui(theme: Literal["light", "dark"] = "light") -> AppUI:
+def excel_ui(theme: ThemeName = "light") -> AppUI:
     return build_ui("excel", theme)
 
 
@@ -126,12 +75,11 @@ def excel_update_cells(payload: CellUpdateRequest) -> CellUpdateResponse:
 @app.get("/api/{app_id}", response_model=AppUI)
 def shared_ui(
     app_id: Literal["word", "powerpoint", "onenote"],
-    theme: Literal["light", "dark"] = "light",
+    theme: ThemeName = "light",
 ) -> AppUI:
     return build_ui(app_id, theme)
 
 
-# ---------------- Static UI (home page and apps) ----------------
-# Must stay LAST. "/" serves static/index.html, "/word/" serves static/word/index.html, and so on.
+# ---------------- Static UI (must stay LAST) ----------------
 
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
