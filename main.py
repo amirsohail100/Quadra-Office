@@ -1,14 +1,20 @@
 import re
+import time
+from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-app = FastAPI(title="Quadra Office API", version="0.1.0")
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 
-# Home page (opened from a local static server or Electron) calls this API from the browser,
-# so CORS must be allowed. Tighten allow_origins later when you deploy.
+app = FastAPI(title="Quadra Office", version="0.1.0")
+
+# ---------------- Middleware ----------------
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,11 +22,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_timing(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    response.headers["X-Process-Time"] = f"{time.perf_counter() - start:.4f}"
+    return response
+
+
+# ---------------- Schemas ----------------
+
 AppId = Literal["word", "excel", "powerpoint", "onenote"]
 CELL_REF = re.compile(r"^[A-Z]{1,3}[1-9][0-9]{0,6}$")
 
-# ---------------- Schemas ----------------
-# Later these will move to backend/schemas.py
 
 class UIComponent(BaseModel):
     id: str = Field(min_length=1, max_length=64)
@@ -91,14 +106,13 @@ def build_ui(app_id: AppId, theme: str) -> AppUI:
     )
 
 
-# ---------------- Routes ----------------
+# ---------------- API routes (must come before the static mount) ----------------
 
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok"}
 
 
-# Excel has its own UI route and cell update route
 @app.get("/api/excel", response_model=AppUI)
 def excel_ui(theme: Literal["light", "dark"] = "light") -> AppUI:
     return build_ui("excel", theme)
@@ -106,14 +120,18 @@ def excel_ui(theme: Literal["light", "dark"] = "light") -> AppUI:
 
 @app.post("/api/excel/cells", response_model=CellUpdateResponse)
 def excel_update_cells(payload: CellUpdateRequest) -> CellUpdateResponse:
-    # Storage will be added in backend/ later. For now the validated payload is acknowledged.
     return CellUpdateResponse(ok=True, sheet=payload.sheet, saved=len(payload.updates))
 
 
-# Word, PowerPoint and OneNote share one UI route
 @app.get("/api/{app_id}", response_model=AppUI)
 def shared_ui(
     app_id: Literal["word", "powerpoint", "onenote"],
     theme: Literal["light", "dark"] = "light",
 ) -> AppUI:
     return build_ui(app_id, theme)
+
+
+# ---------------- Static UI (home page and apps) ----------------
+# Must stay LAST. "/" serves static/index.html, "/word/" serves static/word/index.html, and so on.
+
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
