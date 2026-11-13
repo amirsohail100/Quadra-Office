@@ -1,0 +1,13 @@
+{
+  "name": "quadra-powerpoint",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser based presentation editor (vanilla HTML/CSS/JS)",
+  "scripts": {
+    "icons": "python3 tools/build_icons.py",
+    "test:model": "node --test tests/model.test.js",
+    "test:browser": "node tests/browser.test.js",
+    "test": "npm run test:model && npm run test:browser"
+  },
+  "devDependencies": { "playwright": "^1.50.0", "pdf-lib": "^1.17.1" }
+}
