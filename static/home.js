@@ -23,6 +23,10 @@ const BG_SOURCES = [
   "assets/background.webp"
 ];
 
+// localStorage key where API endpoints are saved
+const STORE_KEY = "quadra.apiEndpoints";
+
+// ---------- DOM references ----------
 const homeView = document.getElementById("homeView");
 const appView = document.getElementById("appView");
 const nav = document.getElementById("nav");
@@ -34,9 +38,45 @@ const appGrid = document.getElementById("appGrid");
 const brandHome = document.getElementById("brandHome");
 const hero = document.getElementById("hero");
 const heroBg = document.getElementById("heroBg");
+const apiList = document.getElementById("apiList");
 
 // Each app's iframe is created once and kept alive, so work is not lost when switching
 const frames = {};
+
+// API endpoints per app, e.g. { word: "https://api.example.com/word" }
+let endpoints = loadEndpoints();
+
+// ---------- API endpoint storage ----------
+function loadEndpoints() {
+  try {
+    return JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveEndpoints() {
+  localStorage.setItem(STORE_KEY, JSON.stringify(endpoints));
+}
+
+function isValidUrl(value) {
+  try {
+    const u = new URL(value);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch (e) {
+    return false;
+  }
+}
+
+// Send the app's endpoint to its iframe
+function sendConfig(app) {
+  const frame = frames[app.id];
+  if (!frame || !frame.contentWindow) return;
+  frame.contentWindow.postMessage(
+    { type: "quadra:config", appId: app.id, apiEndpoint: endpoints[app.id] || null },
+    "*"
+  );
+}
 
 // ---------- Hero background ----------
 function loadHeroBackground() {
@@ -52,7 +92,6 @@ function loadHeroBackground() {
     if (i < BG_SOURCES.length) {
       heroBg.src = BG_SOURCES[i];
     } else {
-      // No image found: show the plain fallback color, not black
       hero.classList.add("no-bg");
       heroBg.remove();
       console.warn("Background image not found in assets/. Expected one of:", BG_SOURCES);
@@ -66,7 +105,7 @@ function loadHeroBackground() {
 function loadTileImages() {
   document.querySelectorAll(".tile[data-app]").forEach(tile => {
     const id = tile.dataset.app;
-    const sources = [`assets/${id}.svg`, `assets/${id}.png` , `assets/${id}.jpg`];
+    const sources = [`assets/${id}.svg`, `assets/${id}.png`];
     let i = 0;
 
     const img = document.createElement("img");
@@ -74,16 +113,13 @@ function loadTileImages() {
     img.alt = "";
 
     img.onload = () => {
-      tile.textContent = "";            // remove the letter
+      tile.textContent = "";
       tile.classList.add("has-img");
       tile.appendChild(img);
     };
     img.onerror = () => {
       i++;
-      if (i < sources.length) {
-        img.src = sources[i];
-      }
-      // If no file is found, the letter tile stays as it is
+      if (i < sources.length) img.src = sources[i];
     };
     img.src = sources[0];
   });
@@ -99,7 +135,7 @@ function makeIcon(app) {
   letter.textContent = app.letter;
   box.appendChild(letter);
 
-  const sources = [`assets/${app.id}.svg`, `assets/${app.id}.png` , `assets/${app.id}.jpg`];
+  const sources = [`assets/${app.id}.svg`, `assets/${app.id}.png`];
   let index = 0;
 
   const img = document.createElement("img");
@@ -137,6 +173,109 @@ function renderHome() {
   });
 }
 
+// ---------- API endpoints panel ----------
+function renderApiPanel() {
+  apiList.innerHTML = "";
+
+  APPS.forEach(app => {
+    const row = document.createElement("div");
+    row.className = "api-row";
+
+    // App name with color dot
+    const nameBox = document.createElement("div");
+    nameBox.className = "api-app";
+    const dot = document.createElement("span");
+    dot.className = "api-dot";
+    dot.style.background = app.color;
+    const name = document.createElement("strong");
+    name.textContent = app.name;
+    nameBox.appendChild(dot);
+    nameBox.appendChild(name);
+
+    // URL input
+    const input = document.createElement("input");
+    input.className = "api-input";
+    input.type = "url";
+    input.placeholder = `https://api.example.com/${app.id}`;
+    input.value = endpoints[app.id] || "";
+    input.setAttribute("aria-label", `${app.name} API endpoint`);
+
+    // Buttons
+    const actions = document.createElement("div");
+    actions.className = "api-actions";
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "btn-small";
+    saveBtn.textContent = "Save";
+    const testBtn = document.createElement("button");
+    testBtn.className = "btn-small btn-ghost";
+    testBtn.textContent = "Test";
+    const clearBtn = document.createElement("button");
+    clearBtn.className = "btn-small btn-ghost";
+    clearBtn.textContent = "Clear";
+    actions.append(saveBtn, testBtn, clearBtn);
+
+    // Status line
+    const status = document.createElement("span");
+    status.className = "api-status";
+    status.setAttribute("aria-live", "polite");
+    status.textContent = endpoints[app.id] ? "Saved" : "No endpoint set";
+
+    const setStatus = (text, kind) => {
+      status.textContent = text;
+      status.className = "api-status" + (kind ? " " + kind : "");
+    };
+
+    saveBtn.addEventListener("click", () => {
+      const value = input.value.trim();
+      if (!value) {
+        delete endpoints[app.id];
+        saveEndpoints();
+        sendConfig(app);
+        setStatus("Cleared", "ok");
+        return;
+      }
+      if (!isValidUrl(value)) {
+        setStatus("Enter a valid http:// or https:// URL", "err");
+        return;
+      }
+      endpoints[app.id] = value;
+      saveEndpoints();
+      sendConfig(app);
+      setStatus("Saved", "ok");
+    });
+
+    testBtn.addEventListener("click", () => {
+      const value = endpoints[app.id];
+      if (!value) {
+        setStatus("Save an endpoint first", "err");
+        return;
+      }
+      setStatus("Testing...", "");
+      fetch(value, { method: "GET", mode: "cors" })
+        .then(r => {
+          setStatus(
+            r.ok ? `Reachable (HTTP ${r.status})` : `Server replied HTTP ${r.status}`,
+            r.ok ? "ok" : "err"
+          );
+        })
+        .catch(() => {
+          setStatus("Unreachable, or CORS is not allowed", "err");
+        });
+    });
+
+    clearBtn.addEventListener("click", () => {
+      input.value = "";
+      delete endpoints[app.id];
+      saveEndpoints();
+      sendConfig(app);
+      setStatus("Cleared", "ok");
+    });
+
+    row.append(nameBox, input, actions, status);
+    apiList.appendChild(row);
+  });
+}
+
 // ---------- App views ----------
 function getFrame(app) {
   if (!frames[app.id]) {
@@ -144,6 +283,7 @@ function getFrame(app) {
     frame.className = "app-frame";
     frame.title = app.name;
     frame.src = app.path;
+    frame.addEventListener("load", () => sendConfig(app));
     appView.appendChild(frame);
     frames[app.id] = frame;
   }
@@ -172,6 +312,7 @@ function showApp(app) {
     if (frames[a.id]) frames[a.id].hidden = a.id !== app.id;
   });
   getFrame(app).hidden = false;
+  sendConfig(app);
 }
 
 // #word, #excel, #powerpoint, #onenote open the app. Empty hash shows home.
@@ -184,6 +325,14 @@ function route() {
     showHome();
   }
 }
+
+// ---------- Messages from apps ----------
+// An app can ask for its endpoint again by sending "quadra:request-config"
+window.addEventListener("message", e => {
+  if (!e.data || e.data.type !== "quadra:request-config") return;
+  const app = APPS.find(a => a.id === e.data.appId);
+  if (app) sendConfig(app);
+});
 
 // ---------- Events ----------
 backBtn.addEventListener("click", () => {
@@ -203,4 +352,5 @@ window.addEventListener("hashchange", route);
 loadHeroBackground();
 loadTileImages();
 renderHome();
+renderApiPanel();
 route();
