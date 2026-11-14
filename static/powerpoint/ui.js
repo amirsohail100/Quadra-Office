@@ -4,7 +4,7 @@
   'use strict';
   const Q = window.QEngine, E = window.QEditor;
   const $ = (id) => document.getElementById(id);
-  const SAVE_KEY = 'quadra-ppt:doc:v1', THEME_KEY = 'quadra-ppt:theme', UI_KEY = 'quadra-ppt:ui';
+  const THEME_KEY = 'quadra-ppt:theme', UI_KEY = 'quadra-ppt:ui';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const el = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
   const ic = (n, cls) => '<svg class="' + (cls || 'ic') + '" aria-hidden="true"><use href="#i-' + n + '"/></svg>';
@@ -124,17 +124,16 @@
   // ================= file helpers =================
   const baseName = () => (E.pres.name || 'Presentation').replace(/[\\/:*?"<>|]+/g, '_');
   function download(href, name) { const a = el('a'); a.href = href; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+  function downloadOutline() {
+    const blob = new Blob([E.pres.outlineText()], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob); download(url, baseName() + '-outline.txt'); setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
   function downloadJson() {
     const blob = new Blob([JSON.stringify(E.pres.toJSON(), null, 1)], { type: 'application/json' });
     const u = URL.createObjectURL(blob); download(u, baseName() + '.json'); setTimeout(() => URL.revokeObjectURL(u), 2000);
   }
   function confirmDialog(title, text, okLabel, onOk) {
     showDialog({ title, body: '<p>' + esc(text) + '</p>', buttons: [{ label: 'Cancel' }, { label: okLabel, primary: true, run: () => { onOk(); } }] });
-  }
-  function newPresentation() {
-    confirmDialog('New presentation', 'Start a new blank presentation? The current presentation will be replaced.', 'Create', () => {
-      E.replacePresentation(Q.Presentation.blank()); saveNow(); syncTitle();
-    });
   }
   function openFromDevice() { $('fileOpen').value = ''; $('fileOpen').click(); }
   $('fileOpen').addEventListener('change', () => {
@@ -144,7 +143,7 @@
       try {
         const o = JSON.parse(r.result);
         if (!o || !Array.isArray(o.slides)) throw new Error('bad');
-        E.replacePresentation(Q.Presentation.fromJSON(o)); saveNow(); syncTitle();
+        const p = Q.Presentation.fromJSON(o); switchTo(null, { name: p.name, pres: p });
       } catch (e) { showDialog({ title: 'Cannot open file', body: '<p>This file is not a Quadra PowerPoint presentation (.json).</p>' }); }
     };
     r.readAsText(f);
@@ -162,11 +161,11 @@
   }
   function syncTitle() { $('docName').textContent = E.pres.name; document.title = E.pres.name + ' - Quadra PowerPoint'; }
   function infoDialog() {
-    let saved = '—'; try { const d = JSON.parse(localStorage.getItem(SAVE_KEY)); if (d && d.saved) saved = new Date(d.saved).toLocaleString(); } catch (e) { /* ignore */ }
+    let saved = '—'; const d = readDoc(index.current); if (d && d.saved) saved = new Date(d.saved).toLocaleString();
     showDialog({ title: 'Presentation info', body:
       '<table class="kbd-table"><tr><td>Name</td><td>' + esc(E.pres.name) + '</td></tr><tr><td>Slides</td><td>' + E.pres.slides.length + '</td></tr>' +
       '<tr><td>Slide size</td><td>' + esc(Q.SIZES[E.pres.size].label) + '</td></tr><tr><td>Theme</td><td>' + esc((Q.THEMES.find((t) => t.id === E.pres.theme.id) || {}).name) + '</td></tr>' +
-      '<tr><td>Last autosave</td><td>' + esc(saved) + '</td></tr></table>' });
+      '<tr><td>Folder</td><td>' + esc((curEntry() || {}).folder || '') + '</td></tr><tr><td>Words</td><td>' + E.pres.wordCount().words + '</td></tr><tr><td>Last autosave</td><td>' + esc(saved) + '</td></tr></table>' });
   }
 
   // ================= autosave =================
@@ -181,8 +180,10 @@
     clearTimeout(saveTimer);
     if (window.__QUADRA_NOSAVE) return;
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 1, saved: Date.now(), cur: E.cur, pres: E.pres.toJSON() }));
-      setStatus('saved');
+      localStorage.setItem(docKey(index.current), JSON.stringify({ v: 1, saved: Date.now(), cur: E.cur, pres: E.pres.toJSON() }));
+      const en = curEntry();
+      if (en) { en.name = E.pres.name; en.updated = Date.now(); if (!en.verAt) en.verAt = Date.now(); else if (Date.now() - en.verAt > 300000) snapshotVersion('Autosaved version'); }
+      saveIndex(); setStatus('saved');
     } catch (e) { setStatus('error'); }
   }
   QUI.saveNow = saveNow;
@@ -218,13 +219,13 @@
   function aboutDialog() { showDialog({ title: 'About', body: '<p><b>Quadra PowerPoint</b> — version 1</p><p>A browser based presentation editor. Everything stays on your device.</p>' }); }
   function footerDialog() {
     showDialog({
-      title: 'Footer', body: '<label class="row"><input type="checkbox" id="ftShow"> Show footer on all slides</label><label class="row">Text <input type="text" id="ftText" maxlength="120"></label>',
+      title: 'Footer', body: '<label class="row"><input type="checkbox" id="ftNum"> Slide number</label><label class="row"><input type="checkbox" id="ftShow"> Show footer on all slides</label><label class="row">Text <input type="text" id="ftText" maxlength="120"></label>',
       buttons: [{ label: 'Cancel' }, { label: 'Apply to All', primary: true, run: (d) => {
-        const show = d.querySelector('#ftShow').checked, text = d.querySelector('#ftText').value;
-        E.mutate(() => { E.pres.footer = { show, text }; }, 'meta');
+        const show = d.querySelector('#ftShow').checked, text = d.querySelector('#ftText').value, numbers = d.querySelector('#ftNum').checked;
+        E.mutate(() => { E.pres.footer = { show, text, numbers }; }, 'meta');
       } }],
     });
-    $('ftShow').checked = E.pres.footer.show; $('ftText').value = E.pres.footer.text;
+    $('ftShow').checked = E.pres.footer.show; $('ftText').value = E.pres.footer.text; $('ftNum').checked = !!E.pres.footer.numbers;
   }
   function accessibilityDialog() {
     const issues = E.pres.checkAccessibility();
@@ -434,7 +435,15 @@
       else return;
       ev.preventDefault(); ev.stopPropagation();
     }
-    show.onKey = onKey; show.onClick = () => next(); show.onCtx = (ev) => { ev.preventDefault(); prev(); };
+    show.onKey = onKey; show.onClick = (ev) => {
+      if (ev.target.closest('video,audio')) return;
+      const l = ev.target.closest('[data-link]');
+      if (l) {
+        if (l.dataset.link === 'url') { window.open(l.dataset.linkTarget, '_blank', 'noopener,noreferrer'); return; }
+        if (l.dataset.link === 'slide') { clearEnd(); state.i = Number(l.dataset.linkTarget); state.g = 0; state._enter(false); mount(0); return; }
+      }
+      next();
+    }; show.onCtx = (ev) => { ev.preventDefault(); prev(); };
     show.onResize = () => { if (show.layer) place(show.layer); };
     show.onFs = () => { if (show.usedFs && !document.fullscreenElement) stopShow(); };
     document.addEventListener('keydown', onKey, true); root.addEventListener('click', show.onClick); root.addEventListener('contextmenu', show.onCtx);
@@ -477,6 +486,338 @@
     setTimeout(() => E.renderCanvas(), delay + 200);
   }
 
+  // ================= documents library, versions, share =================
+  const INDEX_KEY = 'quadra-ppt:index', VER_PREFIX = 'quadra-ppt:ver:';
+  let index = { current: 'v1', docs: [], folders: ['Documents', 'Drafts', 'Archive'] };
+  const docKey = (id) => 'quadra-ppt:doc:' + id;
+  const entry = (id) => index.docs.find((d) => d.id === id);
+  function loadIndex() {
+    try { const i = JSON.parse(localStorage.getItem(INDEX_KEY)); if (i && Array.isArray(i.docs)) index = Object.assign(index, i); } catch (e) { /* ignore */ }
+    if (!entry(index.current)) index.docs.push({ id: index.current, name: 'Presentation', folder: index.folders[0], updated: Date.now() });
+    if (!Array.isArray(index.folders) || !index.folders.length) index.folders = ['Documents', 'Drafts', 'Archive'];
+  }
+  function saveIndex() { if (window.__QUADRA_NOSAVE) return; try { localStorage.setItem(INDEX_KEY, JSON.stringify(index)); } catch (e) { /* ignore */ } }
+  const curEntry = () => entry(index.current);
+  const newId = () => 'd' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
+  const readDoc = (id) => { try { const d = JSON.parse(localStorage.getItem(docKey(id))); if (d && d.pres && Array.isArray(d.pres.slides)) return d; } catch (e) { /* ignore */ } return null; };
+
+  function versions(id) { try { const v = JSON.parse(localStorage.getItem(VER_PREFIX + id)); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  function snapshotVersion(label) {
+    const id = index.current; const list = versions(id);
+    list.unshift({ t: Date.now(), label: label || 'Autosaved version', slides: E.pres.slides.length, data: JSON.stringify(E.pres.toJSON()) });
+    while (list.length > 8) list.pop();
+    for (;;) { try { localStorage.setItem(VER_PREFIX + id, JSON.stringify(list)); break; } catch (e) { if (list.length <= 1) return false; list.pop(); } }
+    const en = curEntry(); if (en) { en.verAt = Date.now(); saveIndex(); }
+    return true;
+  }
+  function versionDialog() {
+    const body = el('div');
+    const draw = () => {
+      const list = versions(index.current);
+      body.innerHTML = '<p>Versions are kept in this browser (latest 8).</p>' + (list.length ? '<table class="kbd-table" id="versionTable">' + list.map((v, k) => '<tr><td>' + esc(new Date(v.t).toLocaleString()) + '</td><td>' + esc(v.label) + ' · ' + v.slides + ' slide' + (v.slides === 1 ? '' : 's') + '</td><td><button class="btn" data-restore="' + k + '">Restore</button></td></tr>').join('') + '</table>' : '<p id="versionEmpty">No saved versions yet.</p>');
+    };
+    draw();
+    body.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-restore]'); if (!b) return;
+      const v = versions(index.current)[Number(b.dataset.restore)]; if (!v) return;
+      snapshotVersion('Before restore');
+      const keep = E.pres.name; const p = Q.Presentation.fromJSON(v.data); p.name = keep;
+      E.replacePresentation(p); saveNow(); syncTitle(); dlg.close();
+    });
+    const dlg = showDialog({ title: 'Version history', wide: true, body, buttons: [{ label: 'Save a version now', act: 'saveVersion', run: () => { snapshotVersion('Saved manually'); draw(); return false; } }, { label: 'Close', primary: true }] });
+  }
+
+  function switchTo(id, makeNew) {
+    saveNow();
+    if (makeNew) {
+      const nid = newId(); index.docs.push({ id: nid, name: makeNew.name, folder: (curEntry() || {}).folder || index.folders[0], updated: Date.now() });
+      index.current = nid; E.replacePresentation(makeNew.pres);
+    } else {
+      const d = readDoc(id); if (!d) { showDialog({ title: 'Cannot open', body: '<p>This presentation could not be read.</p>' }); return; }
+      index.current = id; E.replacePresentation(Q.Presentation.fromJSON(d.pres));
+      if (d.cur > 0) E.selectSlide(Math.min(d.cur, E.pres.slides.length - 1), true);
+    }
+    saveIndex(); saveNow(); syncTitle();
+  }
+  function newPresentation() { const p = Q.Presentation.blank(); switchTo(null, { name: p.name, pres: p }); }
+  function openFromList() {
+    const body = el('div');
+    const draw = () => {
+      const rows = index.docs.slice().sort((a, b) => (b.updated || 0) - (a.updated || 0));
+      body.innerHTML = '<table class="kbd-table" id="docTable">' + rows.map((d) => '<tr data-doc="' + esc(d.id) + '"><td>' + esc(d.name) + (d.id === index.current ? ' (open)' : '') + '</td><td>' + esc(d.folder || '') + '</td><td>' + esc(new Date(d.updated || 0).toLocaleString()) + '</td><td><button class="btn" data-open="' + esc(d.id) + '"' + (d.id === index.current ? ' disabled' : '') + '>Open</button> <button class="btn" data-del="' + esc(d.id) + '"' + (d.id === index.current ? ' disabled' : '') + '>Delete</button></td></tr>').join('') + '</table>';
+    };
+    draw();
+    body.addEventListener('click', (ev) => {
+      const o = ev.target.closest('[data-open]'), d = ev.target.closest('[data-del]');
+      if (o && !o.disabled) { dlg.close(); switchTo(o.dataset.open); }
+      else if (d && !d.disabled) {
+        const id = d.dataset.del; index.docs = index.docs.filter((x) => x.id !== id);
+        try { localStorage.removeItem(docKey(id)); localStorage.removeItem(VER_PREFIX + id); } catch (e) { /* ignore */ }
+        saveIndex(); draw();
+      }
+    });
+    const dlg = showDialog({ title: 'My presentations', wide: true, body, buttons: [{ label: 'Close', primary: true }] });
+  }
+  function moveDialog() {
+    const en = curEntry();
+    showDialog({
+      title: 'Move file', body: '<label class="row">Folder <select id="moveFolder">' + index.folders.map((f) => '<option' + (f === en.folder ? ' selected' : '') + '>' + esc(f) + '</option>').join('') + '<option value="__new">New folder…</option></select></label><label class="row" id="moveNewRow" hidden>Name <input type="text" id="moveNew" maxlength="40"></label>',
+      buttons: [{ label: 'Cancel' }, { label: 'Move', primary: true, run: (d) => {
+        let f = d.querySelector('#moveFolder').value;
+        if (f === '__new') { f = d.querySelector('#moveNew').value.trim(); if (!f) return false; if (index.folders.indexOf(f) < 0) index.folders.push(f); }
+        en.folder = f; saveIndex();
+      } }],
+    });
+    $('moveFolder').addEventListener('change', () => { $('moveNewRow').hidden = $('moveFolder').value !== '__new'; });
+  }
+  function saveCopy() {
+    const copy = Q.Presentation.fromJSON(E.pres.toJSON()); copy.name = E.pres.name + ' - Copy';
+    const id = newId();
+    try { localStorage.setItem(docKey(id), JSON.stringify({ v: 1, saved: Date.now(), cur: 0, pres: copy.toJSON() })); }
+    catch (e) { showDialog({ title: 'Cannot save a copy', body: '<p>The browser storage is full.</p>' }); return; }
+    index.docs.push({ id, name: copy.name, folder: (curEntry() || {}).folder || index.folders[0], updated: Date.now() }); saveIndex();
+    toast('Copy saved in My presentations');
+  }
+  function copyText(text) {
+    const fallback = () => { const t = el('textarea'); t.value = text; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); } catch (e) { /* ignore */ } t.remove(); };
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).catch(fallback);
+    fallback(); return Promise.resolve();
+  }
+  const mailtoUrl = () => 'mailto:?subject=' + encodeURIComponent(E.pres.name) + '&body=' + encodeURIComponent('Presentation: ' + E.pres.name + '\n\n' + E.pres.outlineText().slice(0, 1500));
+  QUI.mailtoUrl = mailtoUrl;
+  function shareMenuItems() {
+    return [
+      { label: 'Share a copy…', icon: 'f-share', id: 'share-system', run: async () => {
+        const file = new File([JSON.stringify(E.pres.toJSON())], baseName() + '.json', { type: 'application/json' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: E.pres.name }); } catch (e) { /* cancelled */ } }
+        else showDialog({ title: 'Share a copy', body: '<p>This browser has no system share sheet. Use <b>Email a copy</b>, <b>Copy outline</b> or <b>File → Create a copy</b> to send the file.</p>' });
+      } },
+      { label: 'Email a copy…', icon: 'comment', id: 'share-mail', run: () => { const a = el('a'); a.href = mailtoUrl(); document.body.appendChild(a); a.click(); a.remove(); } },
+      { label: 'Copy outline to clipboard', icon: 'f-copy', id: 'share-outline', run: () => copyText(E.pres.outlineText()).then(() => toast('Outline copied')) },
+      { label: 'Download a copy (.json)', icon: 'f-export', id: 'share-json', run: downloadJson },
+    ];
+  }
+
+  // ================= Home extras: dictation, add-ins, designer =================
+  let rec = null, dictLang = (navigator.language && /^(en|hi)/i.test(navigator.language)) ? navigator.language : 'en-US';
+  function toggleDictation() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { showDialog({ title: 'Dictate', body: '<p>This browser does not support speech recognition. Use Chrome or Edge.</p>' }); return; }
+    if (rec) { rec.stop(); return; }
+    const r = new SR(); rec = r; r.lang = dictLang; r.continuous = true; r.interimResults = false;
+    r.onresult = (ev) => {
+      for (let k = ev.resultIndex; k < ev.results.length; k++) {
+        if (!ev.results[k].isFinal) continue;
+        const t = ev.results[k][0].transcript.trim(); if (!t) continue;
+        const sh = E.selShapes()[0]; const has = sh && sh.text && !E.editing;
+        E.insertText((has ? ' ' : '') + t);
+      }
+    };
+    r.onend = () => { if (rec === r) rec = null; scheduleRefresh(); };
+    r.onerror = (e) => { if (rec === r) rec = null; scheduleRefresh(); if (e.error !== 'no-speech' && e.error !== 'aborted') showDialog({ title: 'Dictate', body: '<p>Speech recognition stopped: ' + esc(e.error) + '. Check the microphone permission.</p>' }); };
+    try { r.start(); } catch (e) { rec = null; }
+    scheduleRefresh();
+  }
+  QUI.dictating = () => !!rec;
+  const LOREM = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.';
+  function wordCountDialog() {
+    const c = E.pres.wordCount();
+    showDialog({ title: 'Word Count', body: '<table class="kbd-table" id="wordTable"><tr><td>Slides</td><td>' + c.slides + '</td></tr><tr><td>Words</td><td>' + c.words + '</td></tr><tr><td>Characters (no spaces)</td><td>' + c.chars + '</td></tr></table>' });
+  }
+  function agendaSlide() {
+    const titles = E.pres.slides.map((s, i) => { const t = s.shapes.find((x) => x.ph === 'title'); return (t && t.text.trim()) || ''; }).filter(Boolean);
+    if (!titles.length) { showDialog({ title: 'Agenda slide', body: '<p>Add titles to your slides first, then the agenda can list them.</p>' }); return; }
+    E.newSlide('titleContent');
+    E.mutate(() => { const sl = E.slide(); sl.shapes[0].text = 'Agenda'; sl.shapes[1].text = titles.join('\n'); });
+    E.fullRender();
+  }
+  function addinsMenu(b) {
+    openMenu(b, [
+      { head: 'Built-in add-ins', icon: 'addins' },
+      { label: 'Word Count', id: 'addin-words', run: wordCountDialog },
+      { label: 'Slide Numbers', id: 'addin-numbers', check: E.pres.footer.numbers ? undefined : false, run: () => E.mutate(() => { E.pres.footer.numbers = !E.pres.footer.numbers; }, 'meta') },
+      { label: 'Agenda Slide', id: 'addin-agenda', run: agendaSlide },
+      { label: 'Lorem Ipsum Text', id: 'addin-lorem', run: () => E.insertText(LOREM) },
+      { label: 'Today’s Date', id: 'addin-date', run: () => E.insertText(new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })) },
+    ]);
+  }
+  const DESIGN_IDEAS = [['plain', 0], ['parchment', 0], ['prism', 0], ['midnight', 0], ['slate', 0], ['ivory', 0], ['nebula', 0], ['plain', 2]];
+  function designerDialog() {
+    const body = el('div'); body.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:10px';
+    DESIGN_IDEAS.forEach((idea, k) => {
+      const p = Q.Presentation.fromJSON(E.pres.toJSON()); p.setTheme(idea[0], idea[1]);
+      const card = el('button', 'btn'); card.type = 'button'; card.dataset.idea = k; card.style.cssText = 'height:auto;padding:6px;text-align:left';
+      const w = 250, inner = el('div'); inner.style.cssText = 'width:' + w + 'px;height:' + Math.round(w * p.H / p.W) + 'px;overflow:hidden;position:relative';
+      const sl = E.renderSlide(p, p.slides[E.cur], { prompts: true }); sl.style.transform = 'scale(' + (w / p.W) + ')'; inner.appendChild(sl);
+      const lab = el('div'); lab.textContent = Q.THEMES.find((t) => t.id === idea[0]).name + (idea[1] ? ' · ' + Q.VARIANTS[idea[1]].name : ''); lab.style.marginTop = '4px';
+      card.appendChild(inner); card.appendChild(lab); body.appendChild(card);
+    });
+    body.addEventListener('click', (ev) => {
+      const c = ev.target.closest('[data-idea]'); if (!c) return; const idea = DESIGN_IDEAS[Number(c.dataset.idea)];
+      E.mutate(() => E.pres.setTheme(idea[0], idea[1]), 'all'); dlg.close();
+    });
+    const dlg = showDialog({ title: 'Design Ideas', wide: true, body, buttons: [{ label: 'Close', primary: true }] });
+  }
+  function pasteText() {
+    const done = (t) => { if (t) E.insertText(t); else toast('Clipboard has no text'); };
+    if (navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then(done).catch(() => showDialog({ title: 'Paste', body: '<p>The browser did not allow reading the clipboard. Allow clipboard access and try again.</p>' }));
+    else showDialog({ title: 'Paste', body: '<p>This browser cannot read the clipboard from a button. Use Ctrl+V while editing text.</p>' });
+  }
+
+  // ================= Insert extras =================
+  function tableMenu(b) {
+    const node = el('div'); node.style.padding = '8px';
+    const info = el('div'); info.textContent = 'Insert Table'; info.style.cssText = 'margin-bottom:6px;color:var(--muted)';
+    const grid = el('div', 'tgrid'); grid.id = 'tableGrid';
+    for (let r = 0; r < 6; r++) for (let c = 0; c < 8; c++) { const cell = el('button', 'tcell'); cell.type = 'button'; cell.dataset.r = r; cell.dataset.c = c; cell.setAttribute('aria-label', (r + 1) + ' x ' + (c + 1)); grid.appendChild(cell); }
+    grid.addEventListener('mouseover', (ev) => {
+      const t = ev.target.closest('.tcell'); if (!t) return; const hr = Number(t.dataset.r), hc = Number(t.dataset.c);
+      grid.querySelectorAll('.tcell').forEach((x) => x.classList.toggle('on', Number(x.dataset.r) <= hr && Number(x.dataset.c) <= hc)); info.textContent = (hr + 1) + ' × ' + (hc + 1) + ' table';
+    });
+    grid.addEventListener('click', (ev) => { const t = ev.target.closest('.tcell'); if (!t) return; closeMenus(); E.addTable(Number(t.dataset.r) + 1, Number(t.dataset.c) + 1); });
+    node.appendChild(info); node.appendChild(grid);
+    openMenu(b, [{ node }, { sep: true }, { label: 'Insert Table…', id: 'table-dialog', run: tableDialog }]);
+  }
+  function tableDialog() {
+    showDialog({ title: 'Insert Table', body: '<label class="row">Columns <input type="number" id="tblCols" min="1" max="12" value="3"></label><label class="row">Rows <input type="number" id="tblRows" min="1" max="20" value="3"></label>',
+      buttons: [{ label: 'Cancel' }, { label: 'OK', primary: true, run: (d) => { E.addTable(Q.clamp(Number(d.querySelector('#tblRows').value) || 3, 1, 20), Q.clamp(Number(d.querySelector('#tblCols').value) || 3, 1, 12)); } }] });
+  }
+  let camStream = null;
+  function cameoDialog() {
+    const body = el('div'); body.innerHTML = '<video id="cameoVideo" autoplay playsinline muted style="width:100%;border-radius:6px;background:#000;min-height:180px"></video><p id="cameoMsg" style="color:var(--muted)">Starting camera…</p>';
+    const stop = () => { if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; } };
+    const dlg = showDialog({ title: 'Cameo (camera)', body, buttons: [{ label: 'Cancel', run: () => { stop(); } }, { label: 'Take Photo', primary: true, act: 'cameoCapture', run: () => {
+      const v = $('cameoVideo'); if (!camStream || !v.videoWidth) return false;
+      const c = el('canvas'); c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d').drawImage(v, 0, 0);
+      const src = c.toDataURL('image/jpeg', 0.85); stop(); E.addPicture(src, c.width, c.height, 'camera.jpg');
+    } }] });
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { $('cameoMsg').textContent = 'This browser cannot access a camera.'; return dlg; }
+    navigator.mediaDevices.getUserMedia({ video: true }).then((s) => {
+      if (!document.body.contains(body)) { s.getTracks().forEach((t) => t.stop()); return; }
+      camStream = s; const v = $('cameoVideo'); v.srcObject = s; $('cameoMsg').textContent = 'Smile! Click Take Photo to place the picture on the slide.';
+    }).catch((e) => { $('cameoMsg').textContent = 'Camera not available: ' + e.name + '. Allow the camera permission and try again.'; });
+    const obs = new MutationObserver(() => { if (!document.body.contains(body)) { stop(); obs.disconnect(); } }); obs.observe(overlay, { childList: true });
+    return dlg;
+  }
+  function mediaFromFile(kind, file) {
+    if (file.size > 3 * 1024 * 1024) { showDialog({ title: 'File too large', body: '<p>Files embedded in the presentation are limited to 3 MB because they are stored in the browser. Use <b>From URL</b> for bigger ' + kind + ' files.</p>' }); return; }
+    const r = new FileReader(); r.onload = () => E.addShape(kind, { src: r.result, name: file.name }); r.readAsDataURL(file);
+  }
+  $('fileVideo').addEventListener('change', () => { const f = $('fileVideo').files[0]; if (f) mediaFromFile('video', f); $('fileVideo').value = ''; });
+  $('fileAudio').addEventListener('change', () => { const f = $('fileAudio').files[0]; if (f) mediaFromFile('audio', f); $('fileAudio').value = ''; });
+  function mediaUrlDialog(kind) {
+    showDialog({ title: 'Insert ' + kind + ' from URL', body: '<label class="row">URL <input type="text" id="mediaUrl" placeholder="https://…"></label><p id="mediaErr" style="color:var(--ic-red)"></p>',
+      buttons: [{ label: 'Cancel' }, { label: 'Insert', primary: true, run: (d) => {
+        const u = Q.safeUrl(d.querySelector('#mediaUrl').value);
+        if (!u || !/^https?:/i.test(u)) { d.querySelector('#mediaErr').textContent = 'Enter a valid http(s) address.'; return false; }
+        E.addShape(kind, { src: u, name: u });
+      } }] });
+  }
+  function mediaMenu(b, kind) {
+    openMenu(b, [{ label: 'This Device…', icon: kind, id: kind + '-device', run: () => $(kind === 'video' ? 'fileVideo' : 'fileAudio').click() }, { label: 'From URL…', icon: 'link', id: kind + '-url', run: () => mediaUrlDialog(kind) }]);
+  }
+  function stockDialog() {
+    const body = el('div'); body.id = 'stockGrid'; body.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:8px';
+    Q.STOCK.forEach((s) => {
+      const b = el('button', 'btn'); b.type = 'button'; b.dataset.stock = s.id; b.style.cssText = 'height:auto;padding:4px;text-align:center';
+      b.innerHTML = '<img alt="" style="width:100%;display:block;border-radius:4px" src="' + Q.svgUrl(s.svg) + '"><div style="margin-top:2px">' + esc(s.name) + '</div>'; body.appendChild(b);
+    });
+    body.addEventListener('click', (ev) => { const b = ev.target.closest('[data-stock]'); if (!b) return; const s = Q.STOCK.find((x) => x.id === b.dataset.stock); dlg.close(); const sh = E.addPicture(Q.svgUrl(s.svg), 640, 400, s.name + '.svg'); if (sh) E.mutate(() => { E.pres.updateShape(E.cur, sh.id, { alt: s.name }); }); });
+    const dlg = showDialog({ title: 'Stock Images', wide: true, body, buttons: [{ label: 'Close', primary: true }] });
+  }
+  const ICON_COLORS = { Original: null, Black: '#242424', Blue: '#0f6cbd', Green: '#107c10', Orange: '#d83b01', Red: '#c4314b', White: '#ffffff' };
+  function iconSvg(name, color) {
+    const sym = document.getElementById('i-' + name); if (!sym) return null;
+    let inner = sym.innerHTML.replace(/var\(--ic-[a-z]+,(#[0-9a-fA-F]{3,6})\)/g, color ? color : '$1').replace(/currentColor/g, color || '#242424');
+    inner = inner.replace(/&nbsp;/g, ' ');
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="256" height="256" fill="none" stroke="' + (color || '#242424') + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
+  }
+  function iconsDialog() {
+    const names = Array.from(document.querySelectorAll('symbol')).filter((s) => s.getAttribute('viewBox') === '0 0 24 24').map((s) => s.id.slice(2)).filter((n) => n !== 'logo');
+    const body = el('div');
+    body.innerHTML = '<div class="row" style="display:flex;gap:8px;margin-bottom:8px"><input type="text" id="iconSearch" placeholder="Search icons"><select id="iconColor">' + Object.keys(ICON_COLORS).map((k) => '<option>' + k + '</option>').join('') + '</select></div><div id="iconGrid" style="display:grid;grid-template-columns:repeat(8,1fr);gap:4px;max-height:300px;overflow:auto"></div>';
+    const grid = body.querySelector('#iconGrid');
+    const draw = () => {
+      const q = body.querySelector('#iconSearch').value.trim().toLowerCase(); grid.textContent = '';
+      names.filter((n) => !q || n.indexOf(q) >= 0).forEach((n) => { const b = el('button', 'btn'); b.type = 'button'; b.dataset.icon = n; b.title = n; b.style.cssText = 'min-width:0;height:44px;padding:0;display:grid;place-items:center'; b.innerHTML = '<svg style="width:26px;height:26px"><use href="#i-' + n + '"/></svg>'; grid.appendChild(b); });
+    };
+    draw(); body.querySelector('#iconSearch').addEventListener('input', draw);
+    grid.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-icon]'); if (!b) return; const svg = iconSvg(b.dataset.icon, ICON_COLORS[body.querySelector('#iconColor').value]); if (!svg) return;
+      dlg.close(); const sh = E.addPicture(Q.svgUrl(svg), 160, 160, b.dataset.icon + '.svg'); if (sh) E.mutate(() => { E.pres.updateShape(E.cur, sh.id, { alt: b.dataset.icon + ' icon' }); });
+    });
+    const dlg = showDialog({ title: 'Icons', wide: true, body, buttons: [{ label: 'Close', primary: true }] });
+  }
+  function smartArtDialog() {
+    showDialog({ title: 'SmartArt', body: '<label class="row">Layout <select id="saKind"><option value="list">Basic List</option><option value="process">Process</option><option value="cycle">Cycle</option></select></label><label class="row" style="align-items:flex-start">Items <textarea id="saItems" rows="6" style="flex:1;border:1px solid var(--muted);border-radius:4px;background:var(--panel);color:var(--text);padding:6px;font:inherit">First step\nSecond step\nThird step</textarea></label><p style="color:var(--muted)">One item per line (up to 8). The result is made of normal shapes you can edit.</p>',
+      buttons: [{ label: 'Cancel' }, { label: 'Insert', primary: true, act: 'smartInsert', run: (d) => {
+        const items = d.querySelector('#saItems').value.split('\n').map((x) => x.trim()).filter(Boolean);
+        if (!items.length) return false; let ids = [];
+        E.mutate(() => { ids = E.pres.addSmartArt(E.cur, d.querySelector('#saKind').value, items); }); E.select(ids);
+      } }] });
+  }
+  function chartDialog(id, kind) {
+    const ex = id ? E.shape(id) : null, c = ex ? ex.chart : { kind: kind || 'bar', title: '', labels: ['Q1', 'Q2', 'Q3', 'Q4'], values: [4, 7, 3, 6] };
+    showDialog({ title: ex ? 'Edit chart data' : 'Insert Chart', body: '<label class="row">Type <select id="chKind"><option value="bar">Column</option><option value="line">Line</option><option value="pie">Pie</option></select></label><label class="row">Title <input type="text" id="chTitle" maxlength="60"></label><label class="row" style="align-items:flex-start">Data <textarea id="chData" rows="7" style="flex:1;border:1px solid var(--muted);border-radius:4px;background:var(--panel);color:var(--text);padding:6px;font:inherit"></textarea></label><p style="color:var(--muted)">One row per line: label, value</p><p id="chErr" style="color:var(--ic-red)"></p>',
+      buttons: [{ label: 'Cancel' }, { label: ex ? 'Update' : 'Insert', primary: true, act: 'chartOk', run: (d) => {
+        const labels = [], values = [];
+        d.querySelector('#chData').value.split('\n').forEach((ln) => { const m = /^(.*?)[,\t;]\s*(-?\d+(?:\.\d+)?)\s*$/.exec(ln.trim()); if (m) { labels.push(m[1].trim() || '·'); values.push(Number(m[2])); } });
+        if (!labels.length) { d.querySelector('#chErr').textContent = 'Enter at least one row like: Q1, 4'; return false; }
+        const chart = { kind: d.querySelector('#chKind').value, title: d.querySelector('#chTitle').value.trim(), labels, values };
+        if (ex) E.mutate(() => E.pres.updateShape(E.cur, ex.id, { chart: Object.assign({}, ex.chart, chart) })); else E.addShape('chart', { chart });
+      } }] });
+    $('chKind').value = c.kind; $('chTitle').value = c.title; $('chData').value = c.labels.map((l, k) => l + ', ' + c.values[k]).join('\n');
+  }
+  E.on('editchart', (id) => chartDialog(id));
+  function chartMenu(b) { openMenu(b, [['bar', 'Column Chart'], ['line', 'Line Chart'], ['pie', 'Pie Chart']].map((x) => ({ label: x[1], id: 'chart-' + x[0], icon: 'chart', run: () => chartDialog(null, x[0]) }))); }
+  function linkDialog() {
+    const sh = E.selShapes()[0], cur = sh && sh.link;
+    const opts = E.pres.slides.map((s, i) => '<option value="' + i + '"' + (cur && cur.type === 'slide' && cur.index === i ? ' selected' : '') + '>Slide ' + (i + 1) + '</option>').join('');
+    showDialog({ title: 'Insert Link', body: (sh ? '' : '<label class="row">Text to display <input type="text" id="lnkText" value="Link"></label>') +
+      '<label class="row"><input type="radio" name="lnkType" value="url"' + (!cur || cur.type === 'url' ? ' checked' : '') + '> Web address <input type="text" id="lnkUrl" placeholder="https://…" value="' + esc(cur && cur.type === 'url' ? cur.url : '') + '"></label>' +
+      '<label class="row"><input type="radio" name="lnkType" value="slide"' + (cur && cur.type === 'slide' ? ' checked' : '') + '> Place in this presentation <select id="lnkSlide">' + opts + '</select></label><p id="lnkErr" style="color:var(--ic-red)"></p><p style="color:var(--muted)">Links work in the slide show.</p>',
+      buttons: [{ label: 'Cancel' }].concat(cur ? [{ label: 'Remove Link', act: 'linkRemove', run: () => { E.setLink(null); } }] : []).concat([{ label: 'OK', primary: true, act: 'linkOk', run: (d) => {
+        const type = d.querySelector('input[name=lnkType]:checked').value;
+        const link = type === 'url' ? { type: 'url', url: d.querySelector('#lnkUrl').value } : { type: 'slide', index: Number(d.querySelector('#lnkSlide').value) };
+        if (type === 'url' && !Q.safeUrl(link.url)) { d.querySelector('#lnkErr').textContent = 'Enter a valid web address (http, https or mailto).'; return false; }
+        if (!sh) {
+          const txt = (d.querySelector('#lnkText').value || '').trim() || 'Link';
+          const nsh = E.addShape('textbox', { text: txt, ts: { color: '#0f6cbd', underline: true } }); if (nsh) E.setLink(link);
+        } else E.setLink(link);
+      } }]) });
+  }
+  const SYMBOLS = '© ® ™ ° ± × ÷ ≈ ≠ ≤ ≥ ∞ π Σ √ ∑ ∆ µ ← ↑ → ↓ ↔ ⇒ ⇔ ★ ☆ ♥ ♦ ♣ ♠ ✓ ✗ ✔ ✘ € £ ¥ ¢ ₹ § ¶ † ‡ • … – — « » “ ” ‘ ’ № ¼ ½ ¾ ² ³ α β γ δ θ λ ω Ω ☀ ☁ ☂ ☎ ✉ ✈ ♪ ♫ ⚠ ✂'.split(' ');
+  function symbolDialog() {
+    const body = el('div'); body.id = 'symbolGrid'; body.style.cssText = 'display:grid;grid-template-columns:repeat(10,1fr);gap:4px;max-height:300px;overflow:auto';
+    SYMBOLS.forEach((ch) => { const b = el('button', 'btn'); b.type = 'button'; b.dataset.sym = ch; b.textContent = ch; b.style.cssText = 'min-width:0;height:36px;padding:0;font-size:18px'; body.appendChild(b); });
+    body.addEventListener('click', (ev) => { const b = ev.target.closest('[data-sym]'); if (!b) return; dlg.close(); E.insertText(b.dataset.sym); });
+    const dlg = showDialog({ title: 'Symbol', wide: true, body, buttons: [{ label: 'Close', primary: true }] });
+  }
+
+  // comments
+  let cmCursor = -1;
+  function commentDialog() {
+    showDialog({ title: 'New Comment', body: '<label class="row" style="align-items:flex-start"><textarea id="cmText" rows="4" placeholder="Type your comment" style="flex:1;border:1px solid var(--muted);border-radius:4px;background:var(--panel);color:var(--text);padding:6px;font:inherit"></textarea></label>',
+      buttons: [{ label: 'Cancel' }, { label: 'Post', primary: true, act: 'cmPost', run: (d) => { const t = d.querySelector('#cmText').value.trim(); if (!t) return false; E.mutate(() => E.pres.addComment(E.cur, t), 'meta'); E.renderCanvas(); } }] });
+  }
+  function viewComment(k) {
+    const all = E.pres.allComments(); if (!all.length) return;
+    cmCursor = ((k % all.length) + all.length) % all.length; const it = all[cmCursor];
+    E.selectSlide(it.slide);
+    showDialog({ title: 'Comment ' + (cmCursor + 1) + ' of ' + all.length, body: '<p><b>' + esc(it.comment.author) + '</b> · ' + esc(new Date(it.comment.t).toLocaleString()) + ' · slide ' + (it.slide + 1) + '</p><p id="cmBody">' + esc(it.comment.text) + '</p>',
+      buttons: [{ label: 'Delete', act: 'cmDelete', run: () => { E.mutate(() => E.pres.removeComment(it.slide, it.comment.id), 'meta'); E.renderCanvas(); cmCursor = -1; } }, { label: 'Close', primary: true }] });
+  }
+  function commentsPane() {
+    const body = el('div');
+    const draw = () => {
+      const all = E.pres.allComments();
+      body.innerHTML = all.length ? '<table class="kbd-table" id="cmTable">' + all.map((it, k) => '<tr><td>Slide ' + (it.slide + 1) + '</td><td>' + esc(it.comment.text) + '</td><td><button class="btn" data-cmdel="' + k + '">Delete</button></td></tr>').join('') + '</table>' : '<p id="cmEmpty">There are no comments in this presentation.</p>';
+    };
+    draw();
+    body.addEventListener('click', (ev) => { const b = ev.target.closest('[data-cmdel]'); if (!b) return; const it = E.pres.allComments()[Number(b.dataset.cmdel)]; if (it) { E.mutate(() => E.pres.removeComment(it.slide, it.comment.id), 'meta'); E.renderCanvas(); draw(); } });
+    showDialog({ title: 'Comments', wide: true, body, buttons: [{ label: 'Close', primary: true }] });
+  }
+
   // ================= commands =================
   const C = {};
   const def = (id, o) => { C[id] = o; };
@@ -494,7 +835,7 @@
 
   def('undo', { run: () => E.undo(), enabled: () => E.canUndo() });
   def('redo', { run: () => E.redo(), enabled: () => E.canRedo() });
-  def('paste', { run: () => { if (!E.paste()) toast('Nothing to paste'); }, enabled: () => E.hasClip() });
+  def('paste', { run: (b, ev) => { if (ev && ev.target.closest && ev.target.closest('.dd')) openMenu(b, [{ label: 'Paste', id: 'paste-shapes', icon: 'paste', key: 'Ctrl+V', run: () => { if (E.hasClip()) E.paste(); else pasteText(); } }, { label: 'Paste text only', id: 'paste-text', icon: 'textbox', run: pasteText }]); else if (E.hasClip()) E.paste(); else pasteText(); } });
   def('cut', { run: () => E.cut(), enabled: hasSel });
   def('copy', { run: () => E.copy(), enabled: hasSel });
   def('painter', { run: () => E.startPainter(), enabled: () => E.sel.length === 1 && hasText(), pressed: () => E.painterActive() });
@@ -515,13 +856,13 @@
   def('shrink', { run: () => E.stepFont(-1), enabled: hasText });
   def('clearfmt', { run: () => E.clearFormat(), enabled: hasText });
   def('paragraph', { run: (b) => {
-    const t = style() || {};
+    const t = style() || {}; const off = !hasText();
     openMenu(b, [
-      { label: 'Bullets', check: t.list === 'bullet' ? undefined : false, run: () => E.setStyle({ list: t.list === 'bullet' ? 'none' : 'bullet' }) },
-      { label: 'Numbering', check: t.list === 'number' ? undefined : false, run: () => E.setStyle({ list: t.list === 'number' ? 'none' : 'number' }) }, { sep: true },
+      { label: 'Bullets', disabled: off, check: t.list === 'bullet' ? undefined : false, run: () => E.setStyle({ list: t.list === 'bullet' ? 'none' : 'bullet' }) },
+      { label: 'Numbering', disabled: off, check: t.list === 'number' ? undefined : false, run: () => E.setStyle({ list: t.list === 'number' ? 'none' : 'number' }) }, { sep: true },
       ['left', 'Align Left'], ['center', 'Center'], ['right', 'Align Right'], ['justify', 'Justify'],
-    ].map((x) => (Array.isArray(x) ? { label: x[1], check: t.align === x[0] ? undefined : false, run: () => E.setStyle({ align: x[0] }) } : x)));
-  }, enabled: hasText });
+    ].map((x) => (Array.isArray(x) ? { label: x[1], disabled: off, check: t.align === x[0] ? undefined : false, run: () => E.setStyle({ align: x[0] }) } : x)));
+  } });
   def('drawing', { run: (b) => openMenu(b, [
     { label: 'Shapes', icon: 'shapes', submenu: shapeMenu() },
     { label: 'Shape Fill', submenu: colorItems(setFill, 'No Fill'), disabled: !hasSel() },
@@ -533,17 +874,18 @@
   ]) });
   def('find', { run: () => findDialog(false) });
   def('replace', { run: () => findDialog(true) });
-  def('dictate', na('Dictate')); def('addins', na('Add-ins')); def('designer', na('Designer'));
+  def('dictate', { run: (b, ev) => { if (ev && ev.target.closest && ev.target.closest('.dd')) openMenu(b, [['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['en-IN', 'English (India)'], ['hi-IN', 'Hindi']].map((l) => ({ label: l[1], id: 'dict-' + l[0], check: dictLang === l[0] ? undefined : false, run: () => { dictLang = l[0]; } }))); else toggleDictation(); }, pressed: () => !!rec });
+  def('addins', { run: (b) => addinsMenu(b) }); def('designer', { run: designerDialog });
 
   // insert
   def('newslide', { run: (b, ev) => { if (ev && ev.target.closest('.dd')) openMenu(b, layoutItems((l) => E.newSlide(l))); else E.newSlide(); } });
   def('textbox', { run: () => { const sh = E.addShape('textbox'); if (sh) E.startEdit(sh.id); } });
-  def('table', na('Table'));
+  def('table', { run: (b) => tableMenu(b) });
   def('pictures', { run: (b) => openMenu(b, [{ label: 'This Device…', icon: 'picture', run: () => $('filePicture').click() }]) });
-  def('cameo', dis()); def('video', dis()); def('audio', dis());
+  def('cameo', { run: cameoDialog }); def('video', { run: (b) => mediaMenu(b, 'video') }); def('audio', { run: (b) => mediaMenu(b, 'audio') });
   def('shapes', { run: (b) => openMenu(b, shapeMenu()) });
-  def('stock', dis()); def('icons', dis()); def('smartart', na('SmartArt')); def('chart', na('Chart'));
-  def('link', dis()); def('newcomment', na('Comments')); def('footer', { run: footerDialog }); def('symbol', dis());
+  def('stock', { run: stockDialog }); def('icons', { run: iconsDialog }); def('smartart', { run: smartArtDialog }); def('chart', { run: (b) => chartMenu(b) });
+  def('link', { run: linkDialog }); def('newcomment', { run: commentDialog }); def('footer', { run: footerDialog }); def('symbol', { run: symbolDialog });
 
   // draw
   const penCmd = (id, tool, pen) => def(id, { run: () => E.setTool(tool, pen), pressed: () => E.tool === tool && (!pen || E.pen.color === pen.color) });
@@ -582,7 +924,15 @@
   def('fromStart', { run: () => startShow(0) }); def('fromCurrent', { run: () => startShow(E.cur) });
   def('presenter', na('Presenter View')); def('custom', dis()); def('coach', na('Rehearse with Coach'));
   def('review', dis()); def('proofing', na('Proofing')); def('access', { run: accessibilityDialog });
-  def('markread', dis()); def('changes', dis()); def('delcomment', dis()); def('prevcomment', dis()); def('nextcomment', dis()); def('showcomments', na('Show Comments'));
+  def('markread', dis()); def('changes', dis());
+  const anyComments = () => E.pres.allComments().length > 0;
+  def('delcomment', { enabled: anyComments, run: (b) => openMenu(b, [
+    { label: 'Delete Comment', id: 'cm-del-one', run: () => { const all = E.pres.allComments(); const it = all[Math.max(0, Math.min(cmCursor, all.length - 1))] || all[0]; E.mutate(() => E.pres.removeComment(it.slide, it.comment.id), 'meta'); E.renderCanvas(); cmCursor = -1; } },
+    { label: 'Delete All Comments on this Slide', id: 'cm-del-slide', run: () => { E.mutate(() => { E.slide().comments = []; }, 'meta'); E.renderCanvas(); } },
+    { label: 'Delete All Comments', id: 'cm-del-all', run: () => { E.mutate(() => { E.pres.slides.forEach((s) => { s.comments = []; }); }, 'meta'); E.renderCanvas(); } }]) });
+  def('prevcomment', { enabled: anyComments, run: () => viewComment((cmCursor < 0 ? 0 : cmCursor) - 1) });
+  def('nextcomment', { enabled: anyComments, run: () => viewComment(cmCursor + 1) });
+  def('showcomments', { run: (b) => openMenu(b, [{ label: 'Show comment markers', id: 'cm-markers', check: E.showComments !== false ? undefined : false, run: () => { E.showComments = E.showComments === false; E.renderCanvas(); } }, { label: 'Comments pane…', id: 'cm-pane', run: commentsPane }]) });
   const setNotesPane = (on) => { ui.notes = on; saveUi(); applyUi(); };
   def('notes', { run: () => setNotesPane(!ui.notes), pressed: () => ui.notes });
   def('ruler', { run: () => { ui.ruler = !ui.ruler; saveUi(); applyUi(); }, pressed: () => ui.ruler });
@@ -787,20 +1137,22 @@
 
   function openFileMenu(anchor) {
     anchor.classList.add('open');
+    const en = curEntry() || {};
+    const recent = index.docs.slice().sort((a, b) => (b.updated || 0) - (a.updated || 0)).filter((d) => d.id !== index.current).slice(0, 5).map((d) => ({ label: d.name, id: 'file-open-doc-' + d.id, run: () => switchTo(d.id) }));
     const m = openMenu(anchor, [
-      { head: 'Autosaved in this browser', icon: 'cloud-ok' },
+      { head: 'Autosaved to ' + (en.folder || 'Documents'), icon: 'cloud-ok' },
       { label: 'New', icon: 'f-new', id: 'file-new', submenu: [{ label: 'Blank presentation', id: 'file-new-blank', run: newPresentation }] },
-      { label: 'Open', icon: 'f-open', id: 'file-open', submenu: [{ label: 'From this device…', id: 'file-open-device', run: openFromDevice }] }, { sep: true },
-      { label: 'Share', icon: 'f-share', id: 'file-share', submenu: [{ label: 'Share with people…', run: () => notAvailable('Share') }, { label: 'Get a link…', run: () => notAvailable('Share') }] },
-      { label: 'Create a copy', icon: 'f-copy', id: 'file-copy', submenu: [{ label: 'Download a copy (.json)', id: 'file-copy-json', run: downloadJson }] },
+      { label: 'Open', icon: 'f-open', id: 'file-open', submenu: [{ label: 'My presentations…', id: 'file-open-list', run: openFromList }, { label: 'From this device…', id: 'file-open-device', run: openFromDevice }].concat(recent.length ? [{ sep: true }].concat(recent) : []) }, { sep: true },
+      { label: 'Share', icon: 'f-share', id: 'file-share', submenu: shareMenuItems() },
+      { label: 'Create a copy', icon: 'f-copy', id: 'file-copy', submenu: [{ label: 'Save a copy in My presentations', id: 'file-copy-save', run: saveCopy }, { label: 'Download a copy (.json)', id: 'file-copy-json', run: downloadJson }] },
       { label: 'Export', icon: 'f-export', id: 'file-export', submenu: [
         { label: 'Export to PDF', id: 'file-export-pdf', run: printDeck }, { label: 'Current slide as PNG', id: 'file-export-png1', run: () => exportPng(false) },
-        { label: 'All slides as PNG', id: 'file-export-png', run: () => exportPng(true) }, { label: 'Download as .json', run: downloadJson },
+        { label: 'All slides as PNG', id: 'file-export-png', run: () => exportPng(true) }, { label: 'Outline as text (.txt)', id: 'file-export-txt', run: downloadOutline }, { label: 'Download as .json', run: downloadJson },
       ] },
       { label: 'Print', icon: 'f-print', id: 'file-print', submenu: [{ label: 'Print…', id: 'file-print-go', key: 'Ctrl+P', run: printDeck }] }, { sep: true },
       { label: 'Rename', icon: 'f-rename', id: 'file-rename', run: renameDialog },
-      { label: 'Move file', icon: 'f-move', disabled: true },
-      { label: 'Version history', icon: 'f-history', id: 'file-history', run: () => notAvailable('Version history') },
+      { label: 'Move file', icon: 'f-move', id: 'file-move', run: moveDialog },
+      { label: 'Version history', icon: 'f-history', id: 'file-history', run: versionDialog },
       { label: 'Info', icon: 'f-info', id: 'file-info', submenu: [{ label: 'Presentation info…', run: infoDialog }] },
     ], 'file-menu');
     // the File menu stays open until an outside click; closing resets the tab highlight (closeMenus)
@@ -827,8 +1179,8 @@
   $('profileBtn').addEventListener('click', (ev) => openMenu(ev.currentTarget, [
     { head: 'Quadra user (this device)', icon: 'logo' }, { label: 'Account settings', run: () => notAvailable('Account settings') }, { label: 'Sign out', run: () => notAvailable('Sign out') },
   ]));
-  $('shareBtn').addEventListener('click', () => notAvailable('Share'));
-  $('commentsBtn').addEventListener('click', () => notAvailable('Comments'));
+  $('shareBtn').addEventListener('click', (ev) => openMenu(ev.currentTarget, shareMenuItems()));
+  $('commentsBtn').addEventListener('click', commentsPane);
   $('moreBtn').addEventListener('click', (ev) => openMenu(ev.currentTarget, [
     { label: 'Print…', icon: 'f-print', run: printDeck }, { label: 'Export to PDF', icon: 'f-export', run: printDeck },
     { label: 'Keyboard shortcuts', icon: 'keyboard', run: shortcutsDialog }, { label: 'About', icon: 'f-info', run: aboutDialog },
@@ -921,24 +1273,29 @@
   });
   $('stage').addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
+    const hit = E.hitAt(ev.clientX, ev.clientY);
+    if (hit && E.sel.indexOf(hit.shape.id) < 0) E.select([hit.shape.id]);
+    const tableItems = hit && hit.shape.type === 'table' ? [{ sep: true },
+      { label: 'Insert Row Above', id: 'tbl-row-above', run: () => E.tableOp('addRow', hit.shape.id, hit.cell[0]) }, { label: 'Insert Row Below', id: 'tbl-row-below', run: () => E.tableOp('addRow', hit.shape.id, hit.cell[0] + 1) },
+      { label: 'Insert Column Left', id: 'tbl-col-left', run: () => E.tableOp('addCol', hit.shape.id, hit.cell[1]) }, { label: 'Insert Column Right', id: 'tbl-col-right', run: () => E.tableOp('addCol', hit.shape.id, hit.cell[1] + 1) },
+      { label: 'Delete Row', id: 'tbl-row-del', run: () => E.tableOp('delRow', hit.shape.id, hit.cell[0]) }, { label: 'Delete Column', id: 'tbl-col-del', run: () => E.tableOp('delCol', hit.shape.id, hit.cell[1]) }] : [];
+    const chartItems = hit && hit.shape.type === 'chart' ? [{ sep: true }, { label: 'Edit Data…', id: 'chart-edit', run: () => chartDialog(hit.shape.id) }] : [];
+    const linkItems = hit ? [{ sep: true }, { label: 'Link…', id: 'ctx-link', run: linkDialog }] : [];
     const a = { getBoundingClientRect: () => ({ left: ev.clientX, right: ev.clientX, top: ev.clientY, bottom: ev.clientY }) };
     openMenu(a, [
       { label: 'Cut', icon: 'cut', key: 'Ctrl+X', disabled: !hasSel(), run: () => E.cut() }, { label: 'Copy', icon: 'copy', key: 'Ctrl+C', disabled: !hasSel(), run: () => E.copy() },
       { label: 'Paste', icon: 'paste', key: 'Ctrl+V', disabled: !E.hasClip(), run: () => E.paste() }, { label: 'Duplicate', icon: 'f-copy', key: 'Ctrl+D', disabled: !hasSel(), run: () => E.duplicate() },
       { label: 'Delete', icon: 'delete', key: 'Del', disabled: !hasSel(), run: () => E.deleteSel() }, { sep: true },
       { label: 'Bring to Front', disabled: !hasSel(), run: () => E.order('front') }, { label: 'Send to Back', disabled: !hasSel(), run: () => E.order('back') },
-    ]);
+    ].concat(linkItems, tableItems, chartItems));
   });
   // a right click must not change the focus area or clear selection of a clicked shape; select it first when it is under the cursor
   $('stage').addEventListener('pointerdown', (ev) => { if (ev.button === 2) { E.focusArea = 'canvas'; } });
 
   // ================= boot =================
   function loadDoc() {
-    try {
-      const d = JSON.parse(localStorage.getItem(SAVE_KEY));
-      if (d && d.pres && Array.isArray(d.pres.slides)) return { pres: Q.Presentation.fromJSON(d.pres), cur: Number(d.cur) || 0 };
-    } catch (e) { /* ignore */ }
-    return null;
+    loadIndex(); const d = readDoc(index.current);
+    return d ? { pres: Q.Presentation.fromJSON(d.pres), cur: Number(d.cur) || 0 } : null;
   }
   const saved = loadDoc();
   let t0 = 'light'; try { t0 = localStorage.getItem(THEME_KEY) || (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } catch (e) { /* ignore */ }
