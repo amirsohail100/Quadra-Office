@@ -211,6 +211,11 @@ html[data-theme="dark"] .btn.primary { color: #1b1b1b; }
 .dialog ul.issues li { margin: 3px 0; }
 .toast { position: fixed; bottom: 44px; left: 50%; transform: translateX(-50%); background: #242424; color: #fff; padding: 8px 14px; border-radius: 6px; pointer-events: none; z-index: 120; box-shadow: var(--shadow); }
 
+.tgrid { display: grid; grid-template-columns: repeat(8, 22px); gap: 3px; }
+.tcell { width: 22px; height: 22px; border: 1px solid var(--muted); border-radius: 3px; background: var(--panel); }
+.tcell.on { background: var(--accent-weak); border-color: var(--accent); }
+.dialog textarea { color: var(--text); }
+
 /* ---------- slide rendering (shared by canvas, thumbnails, show, print, PNG) ---------- */
 .sl-slide { position: relative; overflow: hidden; transform-origin: 0 0; user-select: none; -webkit-user-select: none; font-family: "Segoe UI", system-ui, Arial, sans-serif; }
 .sl-shape { position: absolute; box-sizing: border-box; }
@@ -227,6 +232,15 @@ html[data-theme="dark"] .btn.primary { color: #1b1b1b; }
 .sl-para.numi { padding-left: 1.6em; }
 .sl-para.numi::before { counter-increment: n; content: counter(n) "."; position: absolute; left: 0; }
 .sl-ft { position: absolute; left: 0; right: 0; text-align: center; font-size: 18px; opacity: .75; pointer-events: none; }
+
+/* tables, comments, slide numbers */
+.sl-tbl { position: absolute; inset: 0; display: grid; }
+.sl-cell { padding: 6px 10px; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.2; display: flex; align-items: center; outline: none; }
+.sl-cell.sl-tin { width: auto; display: block; padding-top: 10px; background: rgba(255,255,255,.25); }
+.sl-cm { position: absolute; right: 22px; top: 14px; min-width: 40px; height: 40px; border-radius: 20px 20px 20px 4px; background: var(--accent, #c43e1c); color: #fff; font: 700 22px/40px "Segoe UI", sans-serif; text-align: center; padding: 0 8px; pointer-events: none; }
+.sl-video, .sl-audio { background: transparent; }
+.stage video, .stage audio { pointer-events: none; }
+.sl-shape[data-link] { cursor: pointer; }
 
 /* editor-only decorations (inside the canvas) */
 .stage .sl-shape { cursor: move; }
@@ -247,6 +261,8 @@ html[data-theme="dark"] .btn.primary { color: #1b1b1b; }
 /* ---------- slide show ---------- */
 #showRoot { position: fixed; inset: 0; background: #000; z-index: 200; overflow: hidden; cursor: none; }
 #showRoot .show-layer { position: absolute; left: 50%; top: 50%; transform-origin: 0 0; }
+#showRoot video, #showRoot audio { pointer-events: auto; cursor: auto; }
+#showRoot .sl-shape[data-link] { cursor: pointer; }
 #showRoot .show-end { position: absolute; inset: 0; display: grid; place-items: center; color: #aaa; font-size: 18px; }
 
 /* ---------- print ---------- */
