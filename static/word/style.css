@@ -3,6 +3,7 @@
   --accent: #0e7c86;
   --accent-ink: #ffffff;
   --accent-soft: rgba(14, 124, 134, 0.18);
+  --avatar: #7b61ff;
   --zoom: 1;
   --font-ui: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
 }
@@ -54,7 +55,8 @@ body {
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; background: none; border: 0; }
 button:disabled { opacity: 0.4; cursor: default; }
-button:focus-visible, input:focus-visible, [contenteditable]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#doc-body:focus, #doc-body:focus-visible { outline: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .ico { width: 20px; height: 20px; fill: none; stroke: currentColor; flex: none; }
 .ico.sm { width: 12px; height: 12px; }
@@ -84,7 +86,7 @@ button:focus-visible, input:focus-visible, [contenteditable]:focus-visible { out
 .save-status .ico { width: 16px; height: 16px; }
 .avatar {
   width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
-  background: var(--accent); color: var(--accent-ink); font-weight: 700;
+  background: var(--avatar); color: #fff; font-weight: 700; font-size: 12px;
 }
 
 /* ---------- menubar (ribbon tabs) ---------- */
@@ -104,6 +106,7 @@ button:focus-visible, input:focus-visible, [contenteditable]:focus-visible { out
 
 /* ---------- ribbon ---------- */
 .ribbon {
+  scrollbar-width: thin;
   display: flex; align-items: stretch; gap: 0; min-height: 96px; padding: 6px 8px 0;
   background: var(--chrome-2); border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: hidden;
 }
@@ -325,3 +328,46 @@ table.kv td:last-child { text-align: right; font-variant-numeric: tabular-nums; 
   .para { break-inside: avoid-page; orphans: 2; widows: 2; }
   .hf { position: static; padding: 0; }
 }
+
+/* ---------- profile and apps panels (match the reference layout) ---------- */
+.menu.panel { padding: 0; min-width: 300px; max-width: 340px; }
+.panel-head { display: flex; align-items: center; gap: 12px; padding: 16px 16px 12px; }
+.panel-avatar {
+  width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: var(--avatar); color: #fff; font-weight: 700; font-size: 17px;
+}
+.panel-name { font-weight: 600; font-size: 14px; }
+.panel-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.panel-body { padding: 4px 6px 8px; }
+.pi { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 12px; border-radius: 6px; text-align: left; }
+.pi:hover { background: var(--hover); }
+.pi .ico { width: 18px; height: 18px; color: var(--muted); }
+.pi .pi-label { flex: 1; }
+.switch {
+  width: 34px; height: 18px; border-radius: 9px; background: var(--border); position: relative; flex: none;
+}
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; transition: transform 0.15s;
+}
+.switch[data-on="true"] { background: var(--accent); }
+.switch[data-on="true"]::after { transform: translateX(16px); }
+.apps-title { padding: 14px 16px 6px; font-weight: 600; font-size: 14px; }
+.apps-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 6px 10px 12px; }
+.app-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px; border-radius: 8px; font-size: 12px;
+}
+.app-tile { text-decoration: none; color: var(--text); }
+.app-tile:hover { background: var(--hover); }
+.app-tile.current { background: var(--active); }
+.app-ico {
+  width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 18px;
+}
+.app-ico.excel { background: #1d7a45; }
+.app-ico.word { background: #2b5fd9; }
+.app-ico.ppt { background: #c9462c; }
+.app-ico.outlook { background: #0f6cbd; }
+.app-ico.onedrive { background: #1c8ad6; }
+.app-ico.onenote { background: #7a3fc4; }
+.profile-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.profile-field input { padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--chrome); color: var(--text); font-size: 13px; }
