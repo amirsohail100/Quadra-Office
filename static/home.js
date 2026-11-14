@@ -3,15 +3,23 @@
 // Icon lookup order for id "word":
 //   assets/word.svg -> assets/word.png -> default letter tile
 // ============================================
+
+// Backend (FastAPI) address. Change only this if the server port changes.
+const API_BASE = "http://127.0.0.1:8000";
+
 const APPS = [
   { id: "word", name: "Word", desc: "Write, format and save documents",
-    path: "word/index.html", letter: "W", color: "#2b579a" },
+    path: "word/index.html", letter: "W", color: "#2b579a",
+    api: `${API_BASE}/api/word` },
   { id: "excel", name: "Excel", desc: "Spreadsheets, formulas and data",
-    path: "excel/index.html", letter: "X", color: "#217346" },
+    path: "excel/index.html", letter: "X", color: "#217346",
+    api: `${API_BASE}/api/excel` },
   { id: "powerpoint", name: "PowerPoint", desc: "Create presentations and slides",
-    path: "powerpoint/index.html", letter: "P", color: "#d24726" },
+    path: "powerpoint/index.html", letter: "P", color: "#d24726",
+    api: `${API_BASE}/api/powerpoint` },
   { id: "onenote", name: "OneNote", desc: "Take notes and organise ideas",
-    path: "onenote/index.html", letter: "N", color: "#7719aa" }
+    path: "onenote/index.html", letter: "N", color: "#7719aa",
+    api: `${API_BASE}/api/onenote` }
 ];
 
 // Hero background: tries these names in order. Put ONE of them in assets/
@@ -22,9 +30,6 @@ const BG_SOURCES = [
   "assets/background.jpeg",
   "assets/background.webp"
 ];
-
-// localStorage key where API endpoints are saved
-const STORE_KEY = "quadra.apiEndpoints";
 
 // ---------- DOM references ----------
 const homeView = document.getElementById("homeView");
@@ -38,42 +43,16 @@ const appGrid = document.getElementById("appGrid");
 const brandHome = document.getElementById("brandHome");
 const hero = document.getElementById("hero");
 const heroBg = document.getElementById("heroBg");
-const apiList = document.getElementById("apiList");
 
 // Each app's iframe is created once and kept alive, so work is not lost when switching
 const frames = {};
 
-// API endpoints per app, e.g. { word: "https://api.example.com/word" }
-let endpoints = loadEndpoints();
-
-// ---------- API endpoint storage ----------
-function loadEndpoints() {
-  try {
-    return JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
-  } catch (e) {
-    return {};
-  }
-}
-
-function saveEndpoints() {
-  localStorage.setItem(STORE_KEY, JSON.stringify(endpoints));
-}
-
-function isValidUrl(value) {
-  try {
-    const u = new URL(value);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch (e) {
-    return false;
-  }
-}
-
-// Send the app's endpoint to its iframe
+// ---------- Send API endpoint to an app ----------
 function sendConfig(app) {
   const frame = frames[app.id];
   if (!frame || !frame.contentWindow) return;
   frame.contentWindow.postMessage(
-    { type: "quadra:config", appId: app.id, apiEndpoint: endpoints[app.id] || null },
+    { type: "quadra:config", appId: app.id, apiEndpoint: app.api },
     "*"
   );
 }
@@ -173,109 +152,6 @@ function renderHome() {
   });
 }
 
-// ---------- API endpoints panel ----------
-function renderApiPanel() {
-  apiList.innerHTML = "";
-
-  APPS.forEach(app => {
-    const row = document.createElement("div");
-    row.className = "api-row";
-
-    // App name with color dot
-    const nameBox = document.createElement("div");
-    nameBox.className = "api-app";
-    const dot = document.createElement("span");
-    dot.className = "api-dot";
-    dot.style.background = app.color;
-    const name = document.createElement("strong");
-    name.textContent = app.name;
-    nameBox.appendChild(dot);
-    nameBox.appendChild(name);
-
-    // URL input
-    const input = document.createElement("input");
-    input.className = "api-input";
-    input.type = "url";
-    input.placeholder = `https://api.example.com/${app.id}`;
-    input.value = endpoints[app.id] || "";
-    input.setAttribute("aria-label", `${app.name} API endpoint`);
-
-    // Buttons
-    const actions = document.createElement("div");
-    actions.className = "api-actions";
-    const saveBtn = document.createElement("button");
-    saveBtn.className = "btn-small";
-    saveBtn.textContent = "Save";
-    const testBtn = document.createElement("button");
-    testBtn.className = "btn-small btn-ghost";
-    testBtn.textContent = "Test";
-    const clearBtn = document.createElement("button");
-    clearBtn.className = "btn-small btn-ghost";
-    clearBtn.textContent = "Clear";
-    actions.append(saveBtn, testBtn, clearBtn);
-
-    // Status line
-    const status = document.createElement("span");
-    status.className = "api-status";
-    status.setAttribute("aria-live", "polite");
-    status.textContent = endpoints[app.id] ? "Saved" : "No endpoint set";
-
-    const setStatus = (text, kind) => {
-      status.textContent = text;
-      status.className = "api-status" + (kind ? " " + kind : "");
-    };
-
-    saveBtn.addEventListener("click", () => {
-      const value = input.value.trim();
-      if (!value) {
-        delete endpoints[app.id];
-        saveEndpoints();
-        sendConfig(app);
-        setStatus("Cleared", "ok");
-        return;
-      }
-      if (!isValidUrl(value)) {
-        setStatus("Enter a valid http:// or https:// URL", "err");
-        return;
-      }
-      endpoints[app.id] = value;
-      saveEndpoints();
-      sendConfig(app);
-      setStatus("Saved", "ok");
-    });
-
-    testBtn.addEventListener("click", () => {
-      const value = endpoints[app.id];
-      if (!value) {
-        setStatus("Save an endpoint first", "err");
-        return;
-      }
-      setStatus("Testing...", "");
-      fetch(value, { method: "GET", mode: "cors" })
-        .then(r => {
-          setStatus(
-            r.ok ? `Reachable (HTTP ${r.status})` : `Server replied HTTP ${r.status}`,
-            r.ok ? "ok" : "err"
-          );
-        })
-        .catch(() => {
-          setStatus("Unreachable, or CORS is not allowed", "err");
-        });
-    });
-
-    clearBtn.addEventListener("click", () => {
-      input.value = "";
-      delete endpoints[app.id];
-      saveEndpoints();
-      sendConfig(app);
-      setStatus("Cleared", "ok");
-    });
-
-    row.append(nameBox, input, actions, status);
-    apiList.appendChild(row);
-  });
-}
-
 // ---------- App views ----------
 function getFrame(app) {
   if (!frames[app.id]) {
@@ -352,5 +228,4 @@ window.addEventListener("hashchange", route);
 loadHeroBackground();
 loadTileImages();
 renderHome();
-renderApiPanel();
 route();
