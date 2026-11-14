@@ -98,17 +98,56 @@
 
   const TEXT_TYPES = ['rect', 'oval', 'textbox'];
   function canHoldText(sh) { return TEXT_TYPES.indexOf(sh.type) >= 0; }
+  function hasTextStyle(sh) { return canHoldText(sh) || sh.type === 'table'; }
+  // links: only http(s) and mailto are allowed (no javascript: etc.)
+  function safeUrl(u) {
+    u = String(u || '').trim(); if (!u) return null;
+    if (/^(https?:|mailto:)/i.test(u)) return u;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(u)) return null;
+    return 'https://' + u;
+  }
+  const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const svgUrl = (svg) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  const STOCK = [
+    ['sunset', 'Sunset', '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f1c5a"/><stop offset=".55" stop-color="#e8516a"/><stop offset="1" stop-color="#ffb347"/></linearGradient></defs><rect width="640" height="400" fill="url(#g)"/><circle cx="320" cy="270" r="70" fill="#ffd36e"/><rect y="270" width="640" height="130" fill="#2a1b3d"/>'],
+    ['mountains', 'Mountains', '<rect width="640" height="400" fill="#bfe3f5"/><path d="M0 400 150 150 260 300 380 110 520 300 640 200V400z" fill="#5b7b8c"/><path d="M380 110 340 170 380 150 420 175z" fill="#fff"/>'],
+    ['ocean', 'Ocean', '<rect width="640" height="400" fill="#d6f1ff"/><path d="M0 220q80-40 160 0t160 0 160 0 160 0V400H0z" fill="#2a8fd0"/><path d="M0 290q80-40 160 0t160 0 160 0 160 0V400H0z" fill="#0f6cbd"/>'],
+    ['forest', 'Forest', '<rect width="640" height="400" fill="#dff3e0"/><path d="M80 380 150 160 220 380zM200 380 290 110 380 380zM360 380 440 180 520 380z" fill="#1f7a3c"/><rect y="370" width="640" height="30" fill="#4a3b2a"/>'],
+    ['city', 'City', '<rect width="640" height="400" fill="#1c2540"/><g fill="#2f3d66"><rect x="40" y="170" width="70" height="230"/><rect x="130" y="110" width="90" height="290"/><rect x="240" y="200" width="60" height="200"/><rect x="320" y="90" width="100" height="310"/><rect x="440" y="150" width="70" height="250"/><rect x="530" y="210" width="70" height="190"/></g><g fill="#ffd36e"><rect x="150" y="140" width="12" height="12"/><rect x="180" y="190" width="12" height="12"/><rect x="345" y="130" width="12" height="12"/><rect x="380" y="180" width="12" height="12"/></g>'],
+    ['waves', 'Waves', '<rect width="640" height="400" fill="#f7f4ee"/><path d="M0 120q80-60 160 0t160 0 160 0 160 0" stroke="#d9531e" stroke-width="14" fill="none"/><path d="M0 200q80-60 160 0t160 0 160 0 160 0" stroke="#2f6f73" stroke-width="14" fill="none"/><path d="M0 280q80-60 160 0t160 0 160 0 160 0" stroke="#c9a227" stroke-width="14" fill="none"/>'],
+    ['dots', 'Dots', '<rect width="640" height="400" fill="#0f6cbd"/>' + Array.from({ length: 40 }, (_, k) => '<circle cx="' + (40 + (k % 10) * 62) + '" cy="' + (50 + Math.floor(k / 10) * 100) + '" r="' + (8 + (k * 7) % 16) + '" fill="#fff" opacity=".35"/>').join('')],
+    ['gradient1', 'Gradient Blue', '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f6cbd"/><stop offset="1" stop-color="#6be3ff"/></linearGradient></defs><rect width="640" height="400" fill="url(#g)"/>'],
+    ['gradient2', 'Gradient Fire', '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c43e1c"/><stop offset="1" stop-color="#ffd800"/></linearGradient></defs><rect width="640" height="400" fill="url(#g)"/>'],
+    ['stripes', 'Stripes', '<rect width="640" height="400" fill="#242424"/>' + Array.from({ length: 12 }, (_, k) => '<rect x="' + (k * 56 - 40) + '" y="-20" width="26" height="460" fill="#e3008c" opacity=".7" transform="rotate(20 320 200)"/>').join('')],
+    ['grid', 'Grid', '<rect width="640" height="400" fill="#f3f3f3"/><g stroke="#bfbfbf" stroke-width="2">' + Array.from({ length: 9 }, (_, k) => '<path d="M' + (k * 80) + ' 0V400M0 ' + (k * 50) + 'H640"/>').join('') + '</g>'],
+    ['bubbles', 'Bubbles', '<rect width="640" height="400" fill="#2a0a4a"/><circle cx="130" cy="120" r="70" fill="#e8516a" opacity=".8"/><circle cx="330" cy="250" r="110" fill="#ffb347" opacity=".7"/><circle cx="520" cy="110" r="60" fill="#6be3ff" opacity=".8"/>'],
+  ].map((x) => ({ id: x[0], name: x[1], svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400">' + x[2] + '</svg>' }));
+  const stockUrl = (id) => { const x = STOCK.find((s) => s.id === id); return x ? svgUrl(x.svg) : null; };
   const isLineType = (t) => t === 'line' || t === 'arrow';
 
   function normShape(d) {
     const sh = Object.assign({
       id: '', type: 'rect', x: 0, y: 0, w: 200, h: 120, rot: 0, fill: null, line: null,
-      text: '', anchor: 'top', ph: null, src: null, alt: '', points: null,
+      text: '', anchor: 'top', ph: null, src: null, alt: '', points: null, link: null, name: '',
+      cells: null, header: true, chart: null,
     }, d || {});
     sh.ts = Object.assign(DEFAULT_TS(), (d && d.ts) || {});
     ['x', 'y', 'w', 'h', 'rot'].forEach((k) => { if (typeof sh[k] !== 'number' || !isFinite(sh[k])) sh[k] = 0; });
     if (sh.line && typeof sh.line === 'object') sh.line = Object.assign({ color: '#000000', width: 2, alpha: 1 }, sh.line);
     if (typeof sh.text !== 'string') sh.text = '';
+    if (sh.type === 'table') {
+      if (!Array.isArray(sh.cells) || !sh.cells.length || !Array.isArray(sh.cells[0])) sh.cells = [['', ''], ['', '']];
+      const cols = Math.max(1, Math.max.apply(null, sh.cells.map((r) => (Array.isArray(r) ? r.length : 0))));
+      sh.cells = sh.cells.map((r) => { const row = (Array.isArray(r) ? r : []).map((c) => String(c == null ? '' : c)); while (row.length < cols) row.push(''); return row; });
+    }
+    if (sh.type === 'chart') {
+      const c = Object.assign({ kind: 'bar', title: '', labels: [], values: [] }, sh.chart || {});
+      if (['bar', 'line', 'pie'].indexOf(c.kind) < 0) c.kind = 'bar';
+      c.labels = (c.labels || []).map(String); c.values = (c.values || []).map((v) => (isFinite(Number(v)) ? Number(v) : 0));
+      while (c.values.length < c.labels.length) c.values.push(0);
+      sh.chart = c;
+    }
+    if (sh.link && !(sh.link.type === 'url' && safeUrl(sh.link.url)) && !(sh.link.type === 'slide' && Number.isInteger(sh.link.index))) sh.link = null;
     return sh;
   }
 
@@ -118,6 +157,7 @@
       shapes: (d.shapes || []).map(normShape), notes: typeof d.notes === 'string' ? d.notes : '',
       transition: Object.assign({ type: 'none', dur: 0.7, dir: 'left' }, d.transition || {}),
       anims: (d.anims || []).filter((a) => a && a.shapeId),
+      comments: (d.comments || []).filter((c) => c && typeof c.text === 'string').map((c) => ({ id: c.id || '', text: c.text, author: c.author || 'Quadra user', t: Number(c.t) || 0 })),
     };
     if (TRANSITIONS.indexOf(s.transition.type) < 0) s.transition.type = 'none';
     s.anims = s.anims.map((a) => Object.assign({ id: '', effect: 'fade', start: 'onclick', dur: 0.5, delay: 0, dir: 'bottom' }, a));
@@ -133,7 +173,7 @@
       this.theme = Object.assign({ id: 'plain', variant: 0 }, d.theme || {});
       if (!THEMES.some((t) => t.id === this.theme.id)) this.theme.id = 'plain';
       if (!VARIANTS.some((v) => v.id === this.theme.variant)) this.theme.variant = 0;
-      this.footer = Object.assign({ show: false, text: '' }, d.footer || {});
+      this.footer = Object.assign({ show: false, text: '', numbers: false }, d.footer || {});
       this.seq = Number(d.seq) > 0 ? Number(d.seq) : 1;
       this.slides = (d.slides || []).filter((s) => s && typeof s === 'object').map(normSlide);
       this._fixIds();
@@ -156,6 +196,7 @@
         max = Math.max(max, num(s.id));
         s.shapes.forEach((sh) => { max = Math.max(max, num(sh.id)); });
         s.anims.forEach((a) => { max = Math.max(max, num(a.id)); });
+        s.comments.forEach((c) => { max = Math.max(max, num(c.id)); });
       });
       if (this.seq <= max) this.seq = max + 1;
       const seen = new Set();
@@ -164,6 +205,7 @@
         s.id = uniq(s.id, 's');
         s.shapes.forEach((sh) => { sh.id = uniq(sh.id, 'sh'); });
         s.anims.forEach((a) => { a.id = uniq(a.id, 'an'); });
+        s.comments.forEach((c) => { c.id = uniq(c.id, 'cm'); });
         const ids = new Set(s.shapes.map((x) => x.id));
         s.anims = s.anims.filter((a) => ids.has(a.shapeId));
       });
@@ -178,7 +220,7 @@
 
     // slides
     _newSlide(layout) {
-      const s = { id: this.nid('s'), layout, shapes: [], notes: '', transition: { type: 'none', dur: 0.7, dir: 'left' }, anims: [] };
+      const s = { id: this.nid('s'), layout, shapes: [], notes: '', transition: { type: 'none', dur: 0.7, dir: 'left' }, anims: [], comments: [] };
       layoutPlaceholders(layout, this.H).forEach((p) => s.shapes.push(this._phShape(p)));
       return s;
     }
@@ -198,6 +240,7 @@
       c.id = this.nid('s');
       c.shapes.forEach((sh) => { const n = this.nid('sh'); map[sh.id] = n; sh.id = n; });
       c.anims.forEach((a) => { a.id = this.nid('an'); a.shapeId = map[a.shapeId]; });
+      c.comments.forEach((cm) => { cm.id = this.nid('cm'); });
       this.slides.splice(i + 1, 0, c);
       return i + 1;
     }
@@ -265,9 +308,22 @@
           d = { w: 400, h: 300, x: cx(400), y: cy(300), src: '', alt: '' }; break;
         case 'ink':
           d = { w: 10, h: 10, x: 0, y: 0, line: { color: '#111111', width: 3, alpha: 1 }, points: [] }; break;
+        case 'table': {
+          const rows = clamp(Math.round((props && props.rows) || 3), 1, 20), cols = clamp(Math.round((props && props.cols) || 3), 1, 12);
+          const w = Math.min(1120, cols * 190), h = rows * 56;
+          d = { w, h, x: cx(w), y: cy(h), cells: Array.from({ length: rows }, () => Array(cols).fill('')), ts: { size: 18, align: 'left' }, header: true }; break;
+        }
+        case 'chart':
+          d = { w: 640, h: 400, x: cx(640), y: cy(400), chart: { kind: 'bar', title: '', labels: ['Q1', 'Q2', 'Q3', 'Q4'], values: [4, 7, 3, 6] }, ts: { size: 14 } }; break;
+        case 'video':
+          d = { w: 640, h: 360, x: cx(640), y: cy(360), src: '', name: '' }; break;
+        case 'audio':
+          d = { w: 380, h: 56, x: cx(380), y: cy(56), src: '', name: '' }; break;
         default: return null;
       }
-      const sh = normShape(Object.assign(base, d, props || {}, { ts: Object.assign({}, d.ts || {}, (props && props.ts) || {}) }));
+      const extra = Object.assign({}, props || {}); delete extra.rows; delete extra.cols;
+      if (type === 'chart' && props && props.chart) extra.chart = Object.assign({}, d.chart, props.chart);
+      const sh = normShape(Object.assign(base, d, extra, { ts: Object.assign({}, d.ts || {}, (props && props.ts) || {}) }));
       s.shapes.push(sh);
       return sh;
     }
@@ -309,6 +365,78 @@
         s.shapes.push(sh); out.push(sh.id);
       });
       return out;
+    }
+
+    // tables
+    tableOp(i, id, op, at) {
+      const sh = this.getShape(i, id); if (!sh || sh.type !== 'table') return false;
+      const rows = sh.cells.length, cols = sh.cells[0].length, rh = sh.h / rows, cw = sh.w / cols;
+      if (op === 'addRow') { sh.cells.splice(clamp(at, 0, rows), 0, Array(cols).fill('')); sh.h = Math.round(rh * (rows + 1)); }
+      else if (op === 'addCol') { sh.cells.forEach((r) => r.splice(clamp(at, 0, cols), 0, '')); sh.w = Math.round(cw * (cols + 1)); }
+      else if (op === 'delRow') { if (rows <= 1) return false; sh.cells.splice(clamp(at, 0, rows - 1), 1); sh.h = Math.round(rh * (rows - 1)); }
+      else if (op === 'delCol') { if (cols <= 1) return false; sh.cells.forEach((r) => r.splice(clamp(at, 0, cols - 1), 1)); sh.w = Math.round(cw * (cols - 1)); }
+      else return false;
+      return true;
+    }
+    setCell(i, id, r, c, text) { const sh = this.getShape(i, id); if (!sh || sh.type !== 'table' || !sh.cells[r] || sh.cells[r][c] == null) return false; sh.cells[r][c] = String(text); return true; }
+    // links (on a shape)
+    setLink(i, id, link) {
+      const sh = this.getShape(i, id); if (!sh) return false;
+      if (!link) { sh.link = null; return true; }
+      if (link.type === 'url') { const u = safeUrl(link.url); if (!u) return false; sh.link = { type: 'url', url: u }; return true; }
+      if (link.type === 'slide' && Number.isInteger(link.index) && link.index >= 0 && link.index < this.slides.length) { sh.link = { type: 'slide', index: link.index }; return true; }
+      return false;
+    }
+    // comments
+    addComment(i, text, author) {
+      const s = this.slides[i]; text = String(text || '').trim(); if (!s || !text) return null;
+      const c = { id: this.nid('cm'), text, author: author || 'Quadra user', t: Date.now() }; s.comments.push(c); return c;
+    }
+    removeComment(i, id) { const s = this.slides[i]; if (!s) return false; const n = s.comments.length; s.comments = s.comments.filter((c) => c.id !== id); return s.comments.length < n; }
+    allComments() { const out = []; this.slides.forEach((s, si) => s.comments.forEach((c) => out.push({ slide: si, comment: c }))); return out; }
+    // SmartArt: builds ordinary shapes (so everything stays editable)
+    addSmartArt(i, kind, items) {
+      const s = this.slides[i]; items = (items || []).map((t) => String(t).trim()).filter(Boolean).slice(0, 8);
+      if (!s || !items.length) return [];
+      const acc = this.themeVars().accent, W_ = this.W, H_ = this.H, ids = [];
+      const box = (x, y, w, h, text, type) => {
+        const sh = this.addShape(i, type || 'rect', { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h), text, ts: { size: 20, align: 'center' } }); ids.push(sh.id); return sh;
+      };
+      const n = items.length;
+      if (kind === 'process') {
+        const gap = 64, bw = Math.min(220, (1120 - (n - 1) * gap) / n), total = n * bw + (n - 1) * gap, x0 = (W_ - total) / 2, y = H_ / 2 - 50;
+        items.forEach((t, k) => {
+          box(x0 + k * (bw + gap), y, bw, 100, t);
+          if (k < n - 1) { const a = this.addShape(i, 'arrow', { x: Math.round(x0 + k * (bw + gap) + bw + 8), y: Math.round(y + 50), w: gap - 16, h: 0, line: { color: acc, width: 4 } }); ids.push(a.id); }
+        });
+      } else if (kind === 'cycle') {
+        const r = Math.min(H_ * 0.34, 230), cx = W_ / 2, cy = H_ / 2;
+        items.forEach((t, k) => { const a = (k / n) * Math.PI * 2 - Math.PI / 2; box(cx + r * 1.5 * Math.cos(a) - 100, cy + r * Math.sin(a) - 40, 200, 80, t, 'oval'); });
+      } else {
+        const bh = Math.min(70, (H_ - 120) / n - 12), total = n * bh + (n - 1) * 12, y0 = (H_ - total) / 2;
+        items.forEach((t, k) => box((W_ - 560) / 2, y0 + k * (bh + 12), 560, bh, t));
+      }
+      return ids;
+    }
+    outlineText() {
+      const out = [];
+      this.slides.forEach((s, i) => {
+        const t = s.shapes.find((x) => x.ph === 'title');
+        out.push((i + 1) + '. ' + ((t && t.text.trim()) || '(no title)'));
+        s.shapes.forEach((x) => {
+          if (x === t) return;
+          if (x.text && x.text.trim()) x.text.split('\n').forEach((l) => { if (l.trim()) out.push('   - ' + l.trim()); });
+          if (x.type === 'table') x.cells.forEach((r) => out.push('   | ' + r.join(' | ')));
+        });
+        if (s.notes.trim()) out.push('   Notes: ' + s.notes.trim());
+      });
+      return out.join('\n');
+    }
+    wordCount() {
+      let words = 0, chars = 0;
+      const count = (t) => { const m = String(t).trim().match(/\S+/g); words += m ? m.length : 0; chars += String(t).replace(/\s/g, '').length; };
+      this.slides.forEach((s) => { s.shapes.forEach((x) => { if (x.text) count(x.text); if (x.type === 'table') x.cells.forEach((r) => r.forEach(count)); }); count(s.notes); });
+      return { slides: this.slides.length, words, chars };
     }
 
     // notes, transitions, size, theme
@@ -473,6 +601,6 @@
   return {
     W, SIZES, LAYOUTS, PH_PROMPT, FONTS, SIZES_PT, THEMES, VARIANTS, TRANSITIONS, ANIM_EFFECTS, ANIM_STARTS,
     Presentation, History, ShowState, animGroups, groupTimeline, layoutPlaceholders, normShape,
-    canHoldText, isLineType, DEFAULT_TS, clone, clamp, contrastColor, shade, luminance, hexToRgb,
+    canHoldText, hasTextStyle, safeUrl, STOCK, stockUrl, svgUrl, escapeXml: esc, isLineType, DEFAULT_TS, clone, clamp, contrastColor, shade, luminance, hexToRgb,
   };
 });
