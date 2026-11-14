@@ -84,7 +84,7 @@ function loadHeroBackground() {
 function loadTileImages() {
   document.querySelectorAll(".tile[data-app]").forEach(tile => {
     const id = tile.dataset.app;
-    const sources = [`assets/${id}.svg`, `assets/${id}.png`];
+    const sources = [`assets/${id}.svg`, `assets/${id}.png`, `assets/${id}.jpg`];
     let i = 0;
 
     const img = document.createElement("img");
@@ -114,7 +114,7 @@ function makeIcon(app) {
   letter.textContent = app.letter;
   box.appendChild(letter);
 
-  const sources = [`assets/${app.id}.svg`, `assets/${app.id}.png`];
+  const sources = [`assets/${app.id}.svg`, `assets/${app.id}.png`, `assets/${app.id}.jpg`];
   let index = 0;
 
   const img = document.createElement("img");
