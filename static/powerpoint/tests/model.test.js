@@ -147,7 +147,7 @@ test('themes and variants change theme vars', () => {
 
 test('JSON round trip and corrupt input', () => {
   const p = Presentation.blank(); p.addSlide('titleContent'); p.addShape(1, 'oval');
-  p.name = 'Deck'; p.footer = { show: true, text: 'Foot' };
+  p.name = 'Deck'; p.footer = { show: true, text: 'Foot', numbers: true };
   const q = Presentation.fromJSON(JSON.stringify(p.toJSON()));
   assert.deepEqual(q.toJSON(), p.toJSON());
   const bad = Presentation.fromJSON('{not json');
@@ -278,4 +278,71 @@ test('contrast and shade helpers', () => {
   assert.equal(E.contrastColor('#ffffff'), '#1b1b1b');
   assert.equal(E.contrastColor('#000000'), '#ffffff');
   assert.equal(E.shade('#808080', -0.5), '#404040');
+});
+
+test('tables: create, edit cells, add/remove rows and columns', () => {
+  const p = Presentation.blank();
+  const t = p.addShape(0, 'table', { rows: 2, cols: 3 });
+  assert.equal(t.cells.length, 2); assert.equal(t.cells[0].length, 3);
+  assert.ok(p.setCell(0, t.id, 1, 2, 'x')); assert.equal(p.getShape(0, t.id).cells[1][2], 'x');
+  assert.equal(p.setCell(0, t.id, 9, 9, 'no'), false);
+  const h = t.h;
+  assert.ok(p.tableOp(0, t.id, 'addRow', 2)); assert.equal(p.getShape(0, t.id).cells.length, 3); assert.equal(p.getShape(0, t.id).h, h / 2 * 3);
+  assert.ok(p.tableOp(0, t.id, 'addCol', 0)); assert.equal(p.getShape(0, t.id).cells[0].length, 4); assert.equal(p.getShape(0, t.id).cells[1][3], 'x');
+  assert.ok(p.tableOp(0, t.id, 'delCol', 3)); assert.ok(p.tableOp(0, t.id, 'delRow', 0));
+  assert.equal(p.getShape(0, t.id).cells.length, 2);
+  const one = p.addShape(0, 'table', { rows: 1, cols: 1 });
+  assert.equal(p.tableOp(0, one.id, 'delRow', 0), false); assert.equal(p.tableOp(0, one.id, 'delCol', 0), false);
+  const q = Presentation.fromJSON(p.toJSON()); assert.deepEqual(q.getShape(0, t.id).cells, p.getShape(0, t.id).cells);
+  const bad = E.normShape({ type: 'table', cells: 'oops' }); assert.equal(bad.cells.length, 2);
+});
+
+test('charts: defaults, normalisation, kinds', () => {
+  const p = Presentation.blank();
+  const c = p.addShape(0, 'chart');
+  assert.equal(c.chart.kind, 'bar'); assert.deepEqual(c.chart.values, [4, 7, 3, 6]);
+  const l = p.addShape(0, 'chart', { chart: { kind: 'pie', labels: ['a', 'b'], values: ['3', 'x'] } });
+  assert.equal(l.chart.kind, 'pie'); assert.deepEqual(l.chart.values, [3, 0]);
+  assert.equal(E.normShape({ type: 'chart', chart: { kind: 'radar' } }).chart.kind, 'bar');
+});
+
+test('media shapes and links are validated', () => {
+  const p = Presentation.blank();
+  const v = p.addShape(0, 'video', { src: 'https://example.com/a.mp4' }); const a = p.addShape(0, 'audio');
+  assert.equal(v.type, 'video'); assert.equal(a.h, 56);
+  const r = p.addShape(0, 'rect');
+  assert.ok(p.setLink(0, r.id, { type: 'url', url: 'example.com' })); assert.equal(p.getShape(0, r.id).link.url, 'https://example.com');
+  assert.equal(p.setLink(0, r.id, { type: 'url', url: 'javascript:alert(1)' }), false);
+  assert.equal(E.safeUrl('mailto:a@b.c'), 'mailto:a@b.c'); assert.equal(E.safeUrl('data:text/html,x'), null); assert.equal(E.safeUrl(''), null);
+  p.addSlide('blank'); assert.ok(p.setLink(0, r.id, { type: 'slide', index: 1 })); assert.equal(p.setLink(0, r.id, { type: 'slide', index: 5 }), false);
+  assert.ok(p.setLink(0, r.id, null)); assert.equal(p.getShape(0, r.id).link, null);
+});
+
+test('comments: add, list, remove, survive duplicate and JSON', () => {
+  const p = Presentation.blank(); p.addSlide('blank');
+  assert.equal(p.addComment(0, '   '), null);
+  const c = p.addComment(0, 'Fix title'); p.addComment(1, 'Second');
+  assert.equal(p.allComments().length, 2);
+  const d = p.duplicateSlide(0); assert.equal(p.slides[d].comments[0].text, 'Fix title'); assert.notEqual(p.slides[d].comments[0].id, c.id);
+  const q = Presentation.fromJSON(p.toJSON()); assert.equal(q.allComments().length, 3);
+  assert.ok(p.removeComment(0, c.id)); assert.equal(p.removeComment(0, c.id), false);
+});
+
+test('SmartArt builds editable shapes for list, process and cycle', () => {
+  const p = Presentation.blank(); p.addSlide('blank');
+  assert.equal(p.addSmartArt(1, 'list', ['A', 'B', 'C']).length, 3);
+  assert.equal(p.addSmartArt(1, 'process', ['A', 'B', 'C']).length, 5);   // 3 boxes + 2 arrows
+  assert.equal(p.addSmartArt(1, 'cycle', ['A', 'B', 'C', 'D']).length, 4);
+  assert.deepEqual(p.addSmartArt(1, 'list', ['', ' ']), []);
+  p.slides[1].shapes.forEach((s) => assert.ok(s.x >= 0 && s.x + s.w <= p.W && s.y >= 0 && s.y + s.h <= p.H, s.type + ' inside slide'));
+  assert.equal(p.slides[1].shapes[0].text, 'A');
+});
+
+test('stock images, outline text, word count, slide numbers flag', () => {
+  assert.equal(E.STOCK.length, 12); assert.ok(E.STOCK.every((s) => s.svg.startsWith('<svg') && s.svg.endsWith('</svg>')));
+  assert.ok(E.stockUrl('sunset').startsWith('data:image/svg+xml')); assert.equal(E.stockUrl('nope'), null);
+  const p = Presentation.blank(); p.slides[0].shapes[0].text = 'Hello world'; p.slides[0].shapes[1].text = 'one two'; p.setNotes(0, 'note here');
+  assert.deepEqual(p.wordCount(), { slides: 1, words: 6, chars: 'Helloworldonetwonotehere'.length });
+  assert.ok(p.outlineText().startsWith('1. Hello world')); assert.ok(p.outlineText().includes('- one two'));
+  assert.equal(p.footer.numbers, false);
 });
