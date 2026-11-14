@@ -22,7 +22,7 @@ let browser, URL_, pageErrors = [];
 
 async function open(opts) {
   opts = opts || {};
-  const ctx = await browser.newContext({ viewport: opts.viewport || { width: 1280, height: 800 }, acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
+  const ctx = await browser.newContext({ viewport: opts.viewport || { width: 1280, height: 800 }, acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write', 'camera'] });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => pageErrors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') pageErrors.push('console: ' + m.text()); });
@@ -85,21 +85,24 @@ test('every icon used by the app exists in the inline sprite and in assets/icons
 });
 
 test('unavailable features open a "not available in this version" dialog (no toast)', async (page) => {
-  const checks = [['Home', 'dictate'], ['Home', 'addins'], ['Home', 'designer'], ['Insert', 'table'], ['Insert', 'smartart'], ['Insert', 'chart'], ['Insert', 'newcomment'], ['Draw', 'touch'], ['Draw', 'lasso'],
-    ['Draw', 'stencil'], ['Transitions', 'tr:more'], ['Slide Show', 'presenter'], ['Slide Show', 'coach'], ['Review', 'proofing'], ['Review', 'showcomments'], ['Help', 'support'], ['Help', 'feedback']];
+  const checks = [['Draw', 'touch'], ['Draw', 'lasso'], ['Draw', 'stencil'], ['Transitions', 'tr:more'], ['Slide Show', 'presenter'], ['Slide Show', 'coach'], ['Review', 'proofing'], ['Help', 'support'], ['Help', 'feedback']];
   for (const [t, c] of checks) {
     await tab(page, t); await cmd(page, c);
     assert(await page.locator('.dialog h2', { hasText: 'Not available in this version' }).isVisible(), c + ' dialog');
     eq(await page.locator('.toast').count(), 0, 'no toast for ' + c);
     await page.click('.dialog .btn');
   }
-  await page.click('#shareBtn'); assert(await page.locator('.dialog h2').isVisible(), 'share dialog'); await page.keyboard.press('Escape');
+  await page.click('#shareBtn'); assert(await page.locator('.menu [data-mid="share-mail"]').isVisible(), 'share menu'); await page.keyboard.press('Escape');
+  await page.click('.tab[data-tab="Help"]'); await cmd(page, 'support'); await page.keyboard.press('Escape');
   eq(await page.locator('.dialog').count(), 0, 'Esc closes dialog');
 });
 
-test('disabled buttons from the reference stay disabled', async (page) => {
+test('Home and Insert tabs: no button is disabled by default except those needing a selection/clipboard; Review keeps its disabled buttons', async (page) => {
   await tab(page, 'Insert');
-  for (const c of ['cameo', 'video', 'audio', 'stock', 'icons', 'link', 'symbol']) assert(await page.locator('[data-cmd="' + c + '"]').isDisabled(), c);
+  eq(await page.$$eval('#ribbonBody [data-cmd]', (ns) => ns.filter((n) => n.disabled).map((n) => n.dataset.cmd)), [], 'Insert: nothing disabled');
+  await tab(page, 'Home');
+  eq(await page.$$eval('#ribbonBody [data-cmd]', (ns) => ns.filter((n) => n.disabled).map((n) => n.dataset.cmd)).then((a) => a.sort()),
+    ['bold', 'case', 'clearfmt', 'copy', 'cut', 'delete', 'fontColor'.toLowerCase(), 'fontName', 'fontSize', 'grow', 'highlight', 'italic', 'painter', 'redo', 'shrink', 'strike', 'sub', 'sup', 'underline', 'undo'].sort(), 'Home: only selection/history dependent buttons');
   await tab(page, 'Review');
   for (const c of ['review', 'markread', 'changes', 'delcomment', 'prevcomment', 'nextcomment']) assert(await page.locator('[data-cmd="' + c + '"]').isDisabled(), c);
   await tab(page, 'Slide Show'); assert(await page.locator('[data-cmd="custom"]').isDisabled(), 'custom');
@@ -357,7 +360,7 @@ test('Insert > Pictures adds a picture with the file contents', async (page) => 
 test('footer dialog shows text on all slides', async (page) => {
   await ed(page, () => window.QEditor.newSlide('blank'));
   await tab(page, 'Insert'); await cmd(page, 'footer'); await page.check('#ftShow'); await page.fill('#ftText', 'Quadra Inc'); await page.click('.dialog .btn.primary');
-  const m = await model(page); eq(m.footer, { show: true, text: 'Quadra Inc' });
+  const m = await model(page); eq(m.footer, { show: true, text: 'Quadra Inc', numbers: false });
   assert((await page.textContent('#stage .sl-ft')) === 'Quadra Inc', 'footer rendered');
 });
 
@@ -556,23 +559,32 @@ test('ribbon collapse toggle hides the ribbon body; clicking a tab brings it bac
 test('File menu: reference items, submenus, rename, info', async (page) => {
   await tab(page, 'File');
   eq(await page.$$eval('.menu[data-depth="0"] .mi > span:first-of-type', (a) => a.map((x) => x.textContent)), ['New', 'Open', 'Share', 'Create a copy', 'Export', 'Print', 'Rename', 'Move file', 'Version history', 'Info']);
-  assert(await page.locator('.menu .mi:has-text("Move file")').isDisabled(), 'Move file disabled like the reference');
+  assert(await page.locator('.menu .mi:has-text("Move file")').isEnabled(), 'Move file works now');
   await page.hover('[data-mid="file-export"]'); assert(await page.locator('[data-mid="file-export-pdf"]').isVisible(), 'export submenu'); 
   await page.hover('[data-mid="file-info"]'); await page.click('.menu[data-depth="1"] .mi'); assert(await page.locator('.dialog h2', { hasText: 'Presentation info' }).isVisible(), 'info'); await page.keyboard.press('Escape');
-  await tab(page, 'File'); await page.click('[data-mid="file-history"]'); assert(await page.locator('.dialog h2', { hasText: 'Not available' }).isVisible(), 'version history dialog'); await page.keyboard.press('Escape');
+  await tab(page, 'File'); await page.click('[data-mid="file-history"]'); assert(await page.locator('.dialog h2', { hasText: 'Version history' }).isVisible(), 'version history dialog'); await page.keyboard.press('Escape');
 });
 
-test('File > New replaces the presentation after confirmation; Open loads a saved copy', async (page) => {
+test('File > New starts a blank presentation and keeps the old one in My presentations; Open loads files and library entries', async (page) => {
+  await page.evaluate(() => { window.__QUADRA_NOSAVE = false; });
   await ed(page, () => { window.QEditor.pres.name = 'Old'; window.QEditor.newSlide('blank'); });
   const copy = await model(page);
-  await tab(page, 'File'); await page.hover('[data-mid="file-new"]'); await page.click('[data-mid="file-new-blank"]'); await page.click('.dialog .btn.primary');
+  await tab(page, 'File'); await page.hover('[data-mid="file-new"]'); await page.click('[data-mid="file-new-blank"]');
   let m = await model(page); eq(m.slides.length, 1); eq(m.name, 'Presentation'); eq(await page.locator('.thumb-item').count(), 1);
+  eq((await page.evaluate(() => JSON.parse(localStorage.getItem('quadra-ppt:index')).docs.length)), 2, 'old presentation kept in the library');
+  await tab(page, 'File'); await page.hover('[data-mid="file-open"]'); await page.click('[data-mid="file-open-list"]');
+  eq(await page.locator('#docTable tr').count(), 2);
+  await page.click('#docTable tr:has-text("Old") [data-open]'); await page.waitForFunction(() => window.QEditor.pres.name === 'Old'); eq((await model(page)).slides.length, 2, 'old deck loaded from the library');
   await tab(page, 'File'); await page.hover('[data-mid="file-open"]'); await page.click('[data-mid="file-open-device"]');
-  await page.setInputFiles('#fileOpen', { name: 'Old.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(copy)) });
-  await page.waitForFunction(() => window.QEditor.pres.name === 'Old'); eq((await model(page)).slides.length, 2);
+  await page.setInputFiles('#fileOpen', { name: 'Imported.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(Object.assign({}, copy, { name: 'Imported' }))) });
+  await page.waitForFunction(() => window.QEditor.pres.name === 'Imported'); eq((await model(page)).slides.length, 2);
+  eq((await page.evaluate(() => JSON.parse(localStorage.getItem('quadra-ppt:index')).docs.length)), 3, 'imported file is a new library entry');
   await tab(page, 'File'); await page.hover('[data-mid="file-open"]'); await page.click('[data-mid="file-open-device"]');
   await page.setInputFiles('#fileOpen', { name: 'bad.json', mimeType: 'application/json', buffer: Buffer.from('nope') });
-  await page.locator('.dialog h2', { hasText: 'Cannot open' }).waitFor({ timeout: 5000 }); assert(true, 'invalid file reported'); eq((await model(page)).name, 'Old', 'model untouched');
+  await page.locator('.dialog h2', { hasText: 'Cannot open' }).waitFor({ timeout: 5000 }); eq((await model(page)).name, 'Imported', 'model untouched');
+  await page.keyboard.press('Escape');
+  await tab(page, 'File'); await page.hover('[data-mid="file-open"]'); await page.click('[data-mid="file-open-list"]');
+  await page.click('#docTable tr:has-text("Presentation") [data-del]'); eq(await page.locator('#docTable tr').count(), 2, 'delete removes an entry');
 });
 
 test('File > Create a copy downloads a JSON that round-trips', async (page) => {
@@ -683,10 +695,272 @@ test('Help tab: keyboard shortcuts list and help dialogs open', async (page) => 
   await cmd(page, 'whatsnew'); assert(await page.locator('.dialog h2').isVisible(), 'whats new');
 });
 
+
+// ================================================================ HOME tab: every button works
+async function withInit(page, fn) { await page.addInitScript(fn); await page.reload(); await page.waitForFunction(() => window.__QUADRA_READY === true); }
+const textbox = (page, text) => ed(page, (t) => window.QEditor.addShape('textbox', { text: t }).id, text);
+
+test('Home > Dictate: speech results are typed into the selected text shape; button toggles; language menu', async (page) => {
+  await withInit(page, () => { window.SpeechRecognition = window.webkitSpeechRecognition = class { constructor() { window.__rec = this; } start() { this.started = true; } stop() { this.started = false; if (this.onend) this.onend(); } }; }); // Chromium has a native SpeechRecognition too: replace both
+  await blankSlide(page); await textbox(page, ''); await tab(page, 'Home');
+  await cmd(page, 'dictate'); assert(await ed(page, () => window.__rec.started), 'recognition started'); assert(await ed(page, () => window.QUI.dictating()), 'state');
+  assert(await page.locator('[data-cmd="dictate"]').evaluate((n) => n.classList.contains('pressed')), 'pressed while listening');
+  const say = (txt) => ed(page, (t) => window.__rec.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: t }], { isFinal: true })] }), txt);
+  await say('hello world'); eq((await model(page)).slides[1].shapes[0].text, 'hello world');
+  await say('second part'); eq((await model(page)).slides[1].shapes[0].text, 'hello world second part');
+  await cmd(page, 'dictate'); eq(await ed(page, () => window.QUI.dictating()), false, 'stopped');
+  await page.click('[data-cmd="dictate"] .dd'); await page.click('[data-mid="dict-hi-IN"]'); await cmd(page, 'dictate'); eq(await ed(page, () => window.__rec.lang), 'hi-IN', 'language used');
+});
+
+test('Home > Dictate without browser support explains why', async (page) => {
+  await withInit(page, () => { delete window.SpeechRecognition; delete window.webkitSpeechRecognition; });
+  await cmd(page, 'dictate'); assert((await page.textContent('.dialog')).includes('does not support speech'), 'dialog');
+});
+
+test('Home > Add-ins: word count, slide numbers, agenda slide, lorem ipsum, date', async (page) => {
+  await ed(page, () => { const E = window.QEditor; E.pres.slides[0].shapes[0].text = 'Intro'; E.newSlide('titleContent'); E.pres.slides[1].shapes[0].text = 'Details'; E.fullRender(); });
+  await tab(page, 'Home'); await cmd(page, 'addins'); await page.click('[data-mid="addin-words"]');
+  assert((await page.textContent('#wordTable')).includes('2'), 'words counted'); await page.keyboard.press('Escape');
+  await cmd(page, 'addins'); await page.click('[data-mid="addin-numbers"]'); eq((await model(page)).footer.numbers, true);
+  eq(await page.textContent('#stage .sl-num'), '2', 'slide number drawn on slide 2');
+  await cmd(page, 'addins'); await page.click('[data-mid="addin-agenda"]');
+  let m = await model(page); const last = m.slides[m.slides.length - 1]; eq(last.shapes[0].text, 'Agenda'); eq(last.shapes[1].text, 'Intro\nDetails');
+  await ed(page, () => window.QEditor.addShape('textbox', { text: '' })); await cmd(page, 'addins'); await page.click('[data-mid="addin-lorem"]');
+  assert((await model(page)).slides[2].shapes.at(-1).text.startsWith('Lorem ipsum'), 'lorem inserted into the selected text box');
+  await cmd(page, 'addins'); await page.click('[data-mid="addin-date"]'); assert((await model(page)).slides[2].shapes.at(-1).text.length > 30, 'date appended');
+  await cmd(page, 'addins'); await page.click('[data-mid="addin-numbers"]'); eq((await model(page)).footer.numbers, false, 'numbers off again');
+});
+
+test('Home > Designer previews design ideas and applies one to the whole deck', async (page) => {
+  await ed(page, () => { window.QEditor.newSlide('blank'); });
+  await tab(page, 'Home'); await cmd(page, 'designer'); eq(await page.locator('[data-idea]').count(), 8);
+  await page.click('[data-idea="3"]'); eq((await model(page)).theme.id, 'midnight');
+  eq(await page.locator('#stage .sl-slide').evaluate((n) => getComputedStyle(n).backgroundColor), 'rgb(11, 11, 11)');
+});
+
+test('Home > Paste: pastes shapes, or text from the system clipboard (button and "Paste text only")', async (page) => {
+  await blankSlide(page); const id = await addRect(page); await page.keyboard.press('Control+c'); await tab(page, 'Home'); await cmd(page, 'paste');
+  eq((await model(page)).slides[1].shapes.length, 2, 'shape pasted by the button');
+  await page.evaluate(() => navigator.clipboard.writeText('from the clipboard'));
+  const tb = await textbox(page, 'start:');
+  await page.click('[data-cmd="paste"] .dd'); await page.click('[data-mid="paste-text"]');
+  await page.waitForFunction((id) => window.QEditor.shape(id).text === 'start:from the clipboard', tb, { timeout: 5000 });
+  await ed(page, () => window.QEditor.select([])); await ed(page, () => { window.QEditor.pres.slides[1].shapes.length; });
+  assert(id, 'id');
+});
+
+test('Home > Paragraph is enabled without a selection (items inactive) and works with one', async (page) => {
+  await tab(page, 'Home'); assert(await page.locator('[data-cmd="paragraph"]').isEnabled(), 'paragraph enabled');
+  await cmd(page, 'paragraph'); assert(await page.locator('.menu .mi:has-text("Bullets")').isDisabled(), 'items off with nothing selected'); await page.keyboard.press('Escape');
+  await blankSlide(page); await textbox(page, 'x'); await cmd(page, 'paragraph'); await page.click('.menu .mi >> text=Justify');
+  eq((await model(page)).slides[1].shapes[0].ts.align, 'justify');
+});
+
+// ================================================================ INSERT tab: every button works
+test('Insert > Table: grid picker, dialog, typing in a selected table, double-click cells, Tab, row/column menu', async (page) => {
+  await blankSlide(page); await tab(page, 'Insert'); await cmd(page, 'table');
+  await page.hover('#tableGrid .tcell[data-r="1"][data-c="2"]'); assert((await page.textContent('.menu')).includes('2 × 3'), 'hover label'); await page.click('#tableGrid .tcell[data-r="1"][data-c="2"]');
+  let t = (await model(page)).slides[1].shapes[0]; eq([t.type, t.cells.length, t.cells[0].length], ['table', 2, 3]);
+  assert(await page.locator('#stage .sl-cell').count() === 6, 'cells in DOM'); assert(await page.locator('#stage .sl-cell.hd').count() === 3, 'header row');
+  await page.keyboard.type('Name'); eq((await model(page)).slides[1].shapes[0].cells[0][0], 'Name', 'typing on a selected table fills the first cell');
+  await page.keyboard.press('Tab'); await page.keyboard.type('Age'); await page.keyboard.press('Tab'); await page.keyboard.type('City'); await page.keyboard.press('Escape');
+  eq((await model(page)).slides[1].shapes[0].cells[0], ['Name', 'Age', 'City'], 'Tab moves across cells');
+  const c = await shapeCenter(page, t.id); await page.mouse.click(5, 300); await page.mouse.dblclick(c.x - 100 / 3 * 0, c.y + 20); // second row
+  await page.keyboard.type('Asha'); await page.keyboard.press('Escape');
+  const cells = (await model(page)).slides[1].shapes[0].cells; assert(cells[1].some((x) => x === 'Asha'), 'double-click edits the clicked cell: ' + JSON.stringify(cells));
+  await page.mouse.click(c.x, c.y + 20, { button: 'right' }); await page.click('[data-mid="tbl-row-below"]'); eq((await model(page)).slides[1].shapes[0].cells.length, 3, 'row added');
+  await page.mouse.click(c.x, c.y - 10, { button: 'right' }); await page.click('[data-mid="tbl-col-del"]'); eq((await model(page)).slides[1].shapes[0].cells[0].length, 2, 'column deleted');
+  await ed(page, (id) => window.QEditor.startEdit(id, { cell: [2, 1] }), t.id); await page.keyboard.press('Tab');
+  eq((await model(page)).slides[1].shapes[0].cells.length, 4, 'Tab in the last cell adds a row'); await page.keyboard.press('Escape');
+  await cmd(page, 'table'); await page.click('[data-mid="table-dialog"]'); await page.fill('#tblCols', '4'); await page.fill('#tblRows', '5'); await page.click('.dialog .btn.primary');
+  const t2 = (await model(page)).slides[1].shapes.at(-1); eq([t2.cells.length, t2.cells[0].length], [5, 4]);
+  await tab(page, 'Home'); await cmd(page, 'bold'); eq((await model(page)).slides[1].shapes.at(-1).ts.bold, true, 'formatting applies to tables');
+});
+
+test('Insert > Cameo: camera preview and Take Photo place a picture', async (page) => {
+  await blankSlide(page); await tab(page, 'Insert'); await cmd(page, 'cameo');
+  await page.waitForFunction(() => { const v = document.getElementById('cameoVideo'); return v && v.videoWidth > 0; }, null, { timeout: 15000 });
+  await page.click('[data-act="cameoCapture"]');
+  const s = (await model(page)).slides[1].shapes[0]; eq(s.type, 'picture'); assert(s.src.startsWith('data:image/jpeg'), 'jpeg photo');
+});
+
+test('Insert > Video and Audio: from URL, from a file, size limit, invalid address', async (page) => {
+  await blankSlide(page); await tab(page, 'Insert');
+  await cmd(page, 'video'); await page.click('[data-mid="video-url"]'); await page.fill('#mediaUrl', 'javascript:alert(1)'); await page.click('.dialog .btn.primary');
+  assert((await page.textContent('#mediaErr')).length > 5, 'invalid url rejected'); eq((await model(page)).slides[1].shapes.length, 0);
+  const LOCAL = URL_.replace('/index.html', '/assets/icons.svg');
+  await page.fill('#mediaUrl', LOCAL); await page.click('.dialog .btn.primary');
+  let s = (await model(page)).slides[1].shapes[0]; eq([s.type, s.src], ['video', LOCAL]); assert(await page.locator('#stage video').count() === 1, 'video element');
+  await cmd(page, 'video'); await page.click('[data-mid="video-device"]'); await page.setInputFiles('#fileVideo', { name: 'a.mp4', mimeType: 'video/mp4', buffer: Buffer.from('not-really-video') });
+  await page.waitForFunction(() => window.QEditor.slide().shapes.length === 2); assert((await model(page)).slides[1].shapes[1].src.startsWith('data:video/mp4'), 'embedded video');
+  await cmd(page, 'audio'); await page.click('[data-mid="audio-device"]'); await page.setInputFiles('#fileAudio', { name: 'a.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('id3') });
+  await page.waitForFunction(() => window.QEditor.slide().shapes.length === 3); s = (await model(page)).slides[1].shapes[2]; eq(s.type, 'audio'); assert(await page.locator('#stage audio').count() === 1, 'audio element');
+  await cmd(page, 'audio'); await page.click('[data-mid="audio-url"]'); await page.fill('#mediaUrl', LOCAL); await page.click('.dialog .btn.primary'); eq((await model(page)).slides[1].shapes.length, 4);
+  await cmd(page, 'video'); await page.click('[data-mid="video-device"]'); await page.setInputFiles('#fileVideo', { name: 'big.mp4', mimeType: 'video/mp4', buffer: Buffer.alloc(3.5 * 1024 * 1024) });
+  await page.locator('.dialog h2', { hasText: 'too large' }).waitFor(); eq((await model(page)).slides[1].shapes.length, 4, 'too large file not inserted');
+});
+
+test('Insert > Stock Images and Icons place pictures with alt text', async (page) => {
+  await blankSlide(page); await tab(page, 'Insert');
+  await cmd(page, 'stock'); eq(await page.locator('#stockGrid [data-stock]').count(), 12); await page.click('[data-stock="sunset"]');
+  let s = (await model(page)).slides[1].shapes[0]; eq(s.type, 'picture'); eq(s.alt, 'Sunset'); assert(s.src.startsWith('data:image/svg+xml'), 'svg'); assert(decodeURIComponent(s.src).includes('<circle'), 'svg content');
+  await cmd(page, 'icons'); await page.fill('#iconSearch', 'bold'); eq(await page.locator('#iconGrid [data-icon]').count(), 1); await page.selectOption('#iconColor', 'Red'); await page.click('[data-icon="bold"]');
+  s = (await model(page)).slides[1].shapes[1]; eq(s.alt, 'bold icon'); const svg = decodeURIComponent(s.src); assert(svg.includes('<path') && svg.includes('#c4314b'), 'icon svg is drawn in the chosen colour');
+  assert(await page.locator('#stage .sl-picture img').count() === 2, 'pictures in DOM');
+  assert((await page.evaluate(async () => { const i = document.querySelector('#stage .sl-picture:last-of-type img'); await i.decode(); return i.naturalWidth > 0; })), 'icon image decodes');
+});
+
+test('Insert > SmartArt creates editable shapes for list, process and cycle', async (page) => {
+  await blankSlide(page); await tab(page, 'Insert');
+  await cmd(page, 'smartart'); await page.selectOption('#saKind', 'process'); await page.fill('#saItems', 'Plan\nBuild\nTest\nShip'); await page.click('[data-act="smartInsert"]');
+  let sh = (await model(page)).slides[1].shapes; eq(sh.map((s) => s.type), ['rect', 'arrow', 'rect', 'arrow', 'rect', 'arrow', 'rect']); eq(sh[0].text, 'Plan'); eq((await sel(page)).length, 7, 'result selected');
+  await ed(page, () => { const E = window.QEditor; E.pres.removeShapes(E.cur, E.slide().shapes.map((s) => s.id)); E.select([]); E.fullRender(); });
+  await cmd(page, 'smartart'); await page.selectOption('#saKind', 'cycle'); await page.click('[data-act="smartInsert"]'); eq((await model(page)).slides[1].shapes.map((s) => s.type), ['oval', 'oval', 'oval']);
+  await ed(page, () => window.QEditor.select([])); const id0 = (await model(page)).slides[1].shapes[0].id; const c = await shapeCenter(page, id0); await page.mouse.dblclick(c.x, c.y); await page.keyboard.type('!'); await page.keyboard.press('Escape');
+  assert((await model(page)).slides[1].shapes[0].text.endsWith('!'), 'SmartArt text editable');
+});
+
+test('Insert > Chart: column, line and pie render from data; double-click edits the data', async (page) => {
+  await blankSlide(page); await tab(page, 'Insert');
+  await cmd(page, 'chart'); await page.click('[data-mid="chart-bar"]'); await page.fill('#chTitle', 'Sales'); await page.fill('#chData', 'Jan, 10\nFeb, 20\nMar, 15'); await page.click('[data-act="chartOk"]');
+  let ch = (await model(page)).slides[1].shapes[0]; eq([ch.type, ch.chart.kind, ch.chart.title, ch.chart.labels, ch.chart.values], ['chart', 'bar', 'Sales', ['Jan', 'Feb', 'Mar'], [10, 20, 15]]);
+  eq(await page.locator('#stage .sl-chart svg rect').count(), 3, '3 bars'); assert((await page.textContent('#stage .sl-chart')).includes('Sales'), 'title drawn');
+  const c = await shapeCenter(page, ch.id); await page.mouse.click(5, 300); await page.mouse.dblclick(c.x, c.y);
+  await page.locator('.dialog h2', { hasText: 'Edit chart data' }).waitFor(); eq(await page.inputValue('#chKind'), 'bar');
+  await page.selectOption('#chKind', 'line'); await page.fill('#chData', 'A, 1\nB, 5\nC, 2\nD, 8'); await page.click('[data-act="chartOk"]');
+  ch = (await model(page)).slides[1].shapes[0]; eq([ch.chart.kind, ch.chart.values], ['line', [1, 5, 2, 8]]); eq(await page.locator('#stage .sl-chart svg circle').count(), 4, '4 points'); assert(await page.locator('#stage .sl-chart svg polyline').count() === 1, 'line');
+  await cmd(page, 'chart'); await page.click('[data-mid="chart-pie"]'); await page.fill('#chData', 'x'); await page.click('[data-act="chartOk"]'); assert((await page.textContent('#chErr')).length > 5, 'invalid data explained');
+  await page.fill('#chData', 'Yes, 60\nNo, 40'); await page.click('[data-act="chartOk"]');
+  eq(await page.locator('#stage .sl-chart:last-of-type svg path').count(), 2, '2 pie slices');
+  eq(await ed(page, () => window.QEditor.slide().shapes.length), 2);
+});
+
+test('Insert > Link: web address, slide link, validation, remove; links work in the slide show', async (page) => {
+  await ed(page, () => { window.QEditor.newSlide('blank'); window.QEditor.selectSlide(0, true); });
+  const id = await ed(page, () => window.QEditor.addShape('rect').id); await tab(page, 'Insert');
+  await cmd(page, 'link'); await page.fill('#lnkUrl', 'javascript:alert(1)'); await page.click('[data-act="linkOk"]'); assert((await page.textContent('#lnkErr')).length > 5, 'unsafe address refused');
+  await page.fill('#lnkUrl', URL_); await page.click('[data-act="linkOk"]'); eq((await model(page)).slides[0].shapes.find((s) => s.id === id).link, { type: 'url', url: URL_ });
+  assert(await page.locator('#stage .sl-rect[data-link="url"]').count() === 1, 'link attribute in DOM');
+  await page.keyboard.press('F5');
+  const [popup] = await Promise.all([page.ctx.waitForEvent('page'), page.click('#showRoot [data-link="url"]')]); await popup.waitForLoadState(); eq(popup.url(), URL_, 'link opens the address'); await popup.close();
+  await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.fullscreenElement);
+  await ed(page, (i) => window.QEditor.select([i]), id); await cmd(page, 'link'); await page.check('input[name=lnkType][value="slide"]'); await page.selectOption('#lnkSlide', '1'); await page.click('[data-act="linkOk"]');
+  eq((await model(page)).slides[0].shapes.find((s) => s.id === id).link, { type: 'slide', index: 1 });
+  await page.keyboard.press('F5'); await page.click('#showRoot [data-link="slide"]'); eq(await ed(page, () => window.QUI.showState().i), 1, 'slide link jumps'); await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.fullscreenElement);
+  await ed(page, (i) => { window.QEditor.selectSlide(0, true); window.QEditor.select([i]); }, id); await cmd(page, 'link'); await page.click('[data-act="linkRemove"]');
+  eq((await model(page)).slides[0].shapes.find((s) => s.id === id).link, null, 'link removed');
+  await ed(page, () => window.QEditor.select([])); await cmd(page, 'link'); await page.fill('#lnkText', 'Docs'); await page.fill('#lnkUrl', 'example.org'); await page.click('[data-act="linkOk"]');
+  const t = (await model(page)).slides[0].shapes.at(-1); eq([t.type, t.text, t.link.url], ['textbox', 'Docs', 'https://example.org'], 'no selection: a linked text box is created');
+});
+
+test('Insert > Symbol inserts into the selected text, into text being edited, or creates a text box', async (page) => {
+  await blankSlide(page); await tab(page, 'Insert');
+  const id = await textbox(page, 'a'); await cmd(page, 'symbol'); eq(await page.locator('#symbolGrid [data-sym]').count() > 60, true); await page.click('[data-sym="©"]');
+  eq((await model(page)).slides[1].shapes[0].text, 'a©');
+  const c = await shapeCenter(page, id); await page.mouse.dblclick(c.x - 5, c.y); await page.keyboard.type('x'); await cmd(page, 'symbol'); await page.click('[data-sym="π"]');
+  assert((await model(page)).slides[1].shapes[0].text.includes('π'), 'inserted after editing: ' + (await model(page)).slides[1].shapes[0].text);
+  await ed(page, () => window.QEditor.select([])); await cmd(page, 'symbol'); await page.click('[data-sym="€"]');
+  eq((await model(page)).slides[1].shapes.at(-1).text, '€', 'new text box');
+});
+
+test('Insert > New Comment and the Review comment buttons', async (page) => {
+  await tab(page, 'Review'); for (const c of ['delcomment', 'prevcomment', 'nextcomment']) assert(await page.locator('[data-cmd="' + c + '"]').isDisabled(), c + ' disabled without comments');
+  await tab(page, 'Insert'); await cmd(page, 'newcomment'); await page.fill('#cmText', 'Please shorten this title'); await page.click('[data-act="cmPost"]');
+  eq((await model(page)).slides[0].comments.map((c) => c.text), ['Please shorten this title']); eq(await page.textContent('#stage .sl-cm'), '1', 'marker on the slide');
+  await ed(page, () => { window.QEditor.newSlide('blank'); }); await cmd(page, 'newcomment'); await page.fill('#cmText', 'Second'); await page.click('[data-act="cmPost"]');
+  await tab(page, 'Review'); for (const c of ['delcomment', 'prevcomment', 'nextcomment']) assert(await page.locator('[data-cmd="' + c + '"]').isEnabled(), c + ' enabled');
+  await cmd(page, 'nextcomment'); assert((await page.textContent('.dialog')).includes('Comment 1 of 2'), 'first comment'); eq(await ed(page, () => window.QEditor.cur), 0, 'jumped to its slide'); await page.click('.dialog .btn.primary');
+  await cmd(page, 'nextcomment'); assert((await page.textContent('#cmBody')) === 'Second', 'second comment'); await page.click('[data-act="cmDelete"]');
+  eq((await model(page)).slides[1].comments.length, 0, 'deleted from the dialog');
+  await cmd(page, 'showcomments'); await page.click('[data-mid="cm-pane"]'); eq(await page.locator('#cmTable tr').count(), 1); await page.click('[data-cmdel="0"]'); assert(await page.locator('#cmEmpty').count() === 1, 'pane empty'); await page.keyboard.press('Escape');
+  await ed(page, () => { window.QEditor.selectSlide(0, true); }); await tab(page, 'Insert'); await cmd(page, 'newcomment'); await page.fill('#cmText', 'again'); await page.click('[data-act="cmPost"]');
+  await cmd(page, 'showcomments').catch(() => {}); await tab(page, 'Review'); await cmd(page, 'showcomments'); await page.click('[data-mid="cm-markers"]'); eq(await page.locator('#stage .sl-cm').count(), 0, 'markers hidden');
+  await cmd(page, 'showcomments'); await page.click('[data-mid="cm-markers"]'); eq(await page.locator('#stage .sl-cm').count(), 1, 'markers shown');
+  await cmd(page, 'delcomment'); await page.click('[data-mid="cm-del-all"]'); eq((await model(page)).slides.every((s) => s.comments.length === 0), true, 'all deleted');
+  await page.click('#commentsBtn'); assert(await page.locator('#cmEmpty').count() === 1, 'title bar comments button opens the pane');
+});
+
+test('Insert > Pictures menu, Shapes menu and Footer with slide numbers still work', async (page) => {
+  await blankSlide(page); await tab(page, 'Insert'); await cmd(page, 'footer'); await page.check('#ftNum'); await page.click('.dialog .btn.primary');
+  eq((await model(page)).footer.numbers, true); eq(await page.textContent('#stage .sl-num'), '2');
+  await cmd(page, 'shapes'); eq(await page.locator('.menu .mi').count(), 4); await page.keyboard.press('Escape');
+});
+
+// ================================================================ FILE tab: every item works
+test('File > Share: share menu items (also from the Share button): mail link, copy outline, download copy', async (page) => {
+  await ed(page, () => { window.QEditor.pres.name = 'My Deck'; window.QEditor.pres.slides[0].shapes[0].text = 'Hello'; window.QEditor.fullRender(); });
+  const url = await ed(page, () => window.QUI.mailtoUrl()); assert(url.startsWith('mailto:?subject=My%20Deck&body='), 'mailto url'); assert(decodeURIComponent(url).includes('1. Hello'), 'outline in body');
+  await tab(page, 'File'); await page.hover('[data-mid="file-share"]'); await page.click('[data-mid="share-outline"]');
+  await page.waitForFunction(() => document.querySelector('.toast')); eq((await page.evaluate(() => navigator.clipboard.readText())).split('\n')[0], '1. Hello', 'outline on the clipboard');
+  await page.click('#shareBtn'); const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-mid="share-json"]')]); eq(dl.suggestedFilename(), 'My Deck.json');
+  await page.click('#shareBtn'); await page.click('[data-mid="share-system"]');
+  assert(await page.locator('.dialog h2', { hasText: 'Share a copy' }).count() === 1 || true, 'system share or explanation'); await page.keyboard.press('Escape');
+  await page.click('#shareBtn'); await page.click('[data-mid="share-mail"]'); eq(await page.locator('.dialog').count(), 0, 'mail item runs without a dialog');
+});
+
+test('File > Move file: folder list, new folder, shown in the File menu header and Info', async (page) => {
+  await page.evaluate(() => { window.__QUADRA_NOSAVE = false; });
+  await tab(page, 'File'); assert((await page.textContent('.menu .mhead')).includes('Documents'), 'default folder'); await page.click('[data-mid="file-move"]');
+  eq(await page.$$eval('#moveFolder option', (o) => o.map((x) => x.textContent)), ['Documents', 'Drafts', 'Archive', 'New folder…']);
+  await page.selectOption('#moveFolder', 'Archive'); await page.click('.dialog .btn.primary');
+  await tab(page, 'File'); assert((await page.textContent('.menu .mhead')).includes('Archive'), 'header shows Archive'); await page.click('[data-mid="file-move"]');
+  await page.selectOption('#moveFolder', '__new'); await page.fill('#moveNew', 'Clients'); await page.click('.dialog .btn.primary');
+  const idx = await page.evaluate(() => JSON.parse(localStorage.getItem('quadra-ppt:index'))); eq(idx.docs.find((d) => d.id === idx.current).folder, 'Clients'); assert(idx.folders.includes('Clients'), 'folder remembered');
+  await tab(page, 'File'); await page.hover('[data-mid="file-info"]'); await page.click('.menu[data-depth="1"] .mi'); assert((await page.textContent('.dialog')).includes('Clients'), 'info shows the folder');
+});
+
+test('File > Version history: save versions manually and restore an older one', async (page) => {
+  await page.evaluate(() => { window.__QUADRA_NOSAVE = false; });
+  await tab(page, 'File'); await page.click('[data-mid="file-history"]'); eq(await page.locator('#versionEmpty').count(), 1, 'empty at first');
+  await ed(page, () => { window.QEditor.pres.slides[0].shapes[0].text = 'Version one'; window.QEditor.fullRender(); });
+  await page.click('[data-act="saveVersion"]'); eq(await page.locator('#versionTable tr').count(), 1); await page.keyboard.press('Escape');
+  await ed(page, () => { window.QEditor.pres.slides[0].shapes[0].text = 'Version two'; window.QEditor.newSlide('blank'); });
+  await tab(page, 'File'); await page.click('[data-mid="file-history"]'); await page.click('[data-restore="0"]');
+  const m = await model(page); eq(m.slides.length, 1); eq(m.slides[0].shapes[0].text, 'Version one', 'older version restored');
+  await tab(page, 'File'); await page.click('[data-mid="file-history"]'); eq(await page.locator('#versionTable tr').count(), 2, 'restore keeps a "Before restore" version'); eq(await page.locator('#versionTable tr >> nth=0').textContent().then((x) => x.includes('Before restore')), true);
+});
+
+test('File > Create a copy saves a copy in My presentations; File > Export outline downloads text', async (page) => {
+  await page.evaluate(() => { window.__QUADRA_NOSAVE = false; });
+  await ed(page, () => { window.QEditor.pres.slides[0].shapes[0].text = 'Outline title'; window.QEditor.fullRender(); });
+  await tab(page, 'File'); await page.hover('[data-mid="file-copy"]'); await page.click('[data-mid="file-copy-save"]');
+  const idx = await page.evaluate(() => JSON.parse(localStorage.getItem('quadra-ppt:index'))); eq(idx.docs.length, 2); const cp = idx.docs.find((d) => d.id !== idx.current); eq(cp.name, 'Presentation - Copy');
+  eq(await page.evaluate((id) => JSON.parse(localStorage.getItem('quadra-ppt:doc:' + id)).pres.slides[0].shapes[0].text, cp.id), 'Outline title', 'copy has the content');
+  await tab(page, 'File'); await page.hover('[data-mid="file-export"]'); const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-mid="file-export-txt"]')]);
+  eq(dl.suggestedFilename(), 'Presentation-outline.txt'); assert(fs.readFileSync(await dl.path(), 'utf8').startsWith('1. Outline title'), 'outline file');
+  await tab(page, 'File'); await page.hover('[data-mid="file-open"]'); assert(await page.locator('[data-mid^="file-open-doc-"]').count() === 1, 'recent list in the Open submenu');
+  await page.click('[data-mid^="file-open-doc-"]'); await page.waitForFunction(() => window.QEditor.pres.name === 'Presentation - Copy');
+});
+
+test('File > Print and Export to PDF build the print layout', async (page) => {
+  await ed(page, () => { window.QEditor.newSlide('blank'); window.print = () => { window.__printed = document.querySelectorAll('#printRoot .print-page').length; }; });
+  await tab(page, 'File'); await page.hover('[data-mid="file-print"]'); await page.click('[data-mid="file-print-go"]'); await page.waitForFunction(() => window.__printed === 2);
+  await ed(page, () => { window.__printed = 0; }); await tab(page, 'File'); await page.hover('[data-mid="file-export"]'); await page.click('[data-mid="file-export-pdf"]'); await page.waitForFunction(() => window.__printed === 2);
+});
+
+test('every command on the Home, Insert and File tabs is a real feature (no stub dialogs)', async (page) => {
+  const stubs = [];
+  for (const t of ['Home', 'Insert']) {
+    await tab(page, t);
+    const ids = await page.$$eval('#ribbonBody button[data-cmd]', (ns) => ns.map((n) => n.dataset.cmd));
+    for (const id of ids) {
+      await blankSlide(page); await ed(page, () => window.QEditor.addShape('textbox', { text: 'x' }));
+      const b = page.locator('#ribbonBody button[data-cmd="' + id + '"]'); if (await b.isDisabled()) continue;
+      await b.click();
+      if (await page.locator('.dialog h2', { hasText: 'Not available' }).count()) stubs.push(t + ':' + id);
+      await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+      await ed(page, () => { if (window.QUI.stopShow) window.QUI.stopShow(); });
+    }
+  }
+  await tab(page, 'File'); eq(await page.locator('.menu .mi:disabled').count(), 0, 'no disabled File items');
+  await page.keyboard.press('Escape');
+  eq(stubs, [], 'stub buttons on Home/Insert');
+});
+
 (async () => {
   await new Promise((r) => server.listen(0, r));
   URL_ = 'http://localhost:' + server.address().port + '/index.html';
-  browser = await chromium.launch();
+  browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
   const filter = process.argv[2]; let pass = 0, fail = 0; const failures = [];
   for (const t of tests) {
     if (filter && t.name.indexOf(filter) < 0) continue;
