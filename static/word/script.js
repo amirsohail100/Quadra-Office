@@ -121,27 +121,50 @@
     return mk('div');
   }
 
+  // Incremental render: a top-level block whose content and list marker did not change keeps
+  // its existing DOM node, so typing in one paragraph never rebuilds the rest of the page.
+  let sigs = [];
+  let nodes = [];
+  function registerKeys(node) {
+    if (node.dataset && node.dataset.key) els[node.dataset.key] = node;
+    node.querySelectorAll && node.querySelectorAll('[data-key]').forEach((el) => { els[el.dataset.key] = el; });
+  }
   function render() {
-    body.textContent = '';
     els = {};
+    const newNodes = [];
+    const newSigs = [];
     let counters = [];
     doc.blocks.forEach((blk, b) => {
-      if (blk.type === 'p') {
-        let marker = '';
-        if (blk.list) {
-          const L = Math.min(blk.list.level, 8);
-          counters.length = L + 1;
-          counters[L] = (counters[L] || 0) + 1;
-          marker = blk.list.kind === 'number' ? counters[L] + '.' : ['\u2022', '\u25E6', '\u25AA'][L % 3];
-        } else {
-          counters = [];
-        }
-        body.appendChild(renderPara(blk, { b }, 'p', marker));
+      let marker = '';
+      if (blk.type === 'p' && blk.list) {
+        const L = Math.min(blk.list.level, 8);
+        counters.length = L + 1;
+        counters[L] = (counters[L] || 0) + 1;
+        marker = blk.list.kind === 'number' ? counters[L] + '.' : ['\u2022', '\u25E6', '\u25AA'][L % 3];
+      } else if (blk.type !== 'p') {
+        counters = [];
       } else {
         counters = [];
-        body.appendChild(renderBlock(blk, b));
       }
+      const sig = JSON.stringify([blk, marker]);
+      let node;
+      if (sigs[b] === sig && nodes[b] && nodes[b].parentNode === body) {
+        node = nodes[b];
+        registerKeys(node);
+      } else {
+        node = blk.type === 'p' ? renderPara(blk, { b }, 'p', marker) : renderBlock(blk, b);
+      }
+      newNodes.push(node);
+      newSigs.push(sig);
     });
+    // Put nodes in order; only moves nodes that are out of place.
+    newNodes.forEach((node, i) => {
+      const cur = body.childNodes[i];
+      if (cur !== node) body.insertBefore(node, cur || null);
+    });
+    while (body.childNodes.length > newNodes.length) body.removeChild(body.lastChild);
+    nodes = newNodes;
+    sigs = newSigs;
   }
 
   // ---------- caret and selection mapping ----------
