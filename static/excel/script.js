@@ -367,6 +367,11 @@
     if (editing) commitEdit(0, 0);
     const h = hit(e);
 
+    if (e.ctrlKey && h.t === "cell") {
+      const linked = getCell(h.r, h.c);
+      if (linked && linked.link) { window.open(linked.link, "_blank", "noopener"); return; }
+    }
+
     if (painter && h.t === "cell") {
       S.ar = S.fr = h.r; S.ac = S.fc = h.c;
       getOrCreate(h.r, h.c).s = { ...painter.s };
@@ -660,8 +665,160 @@
     <div class="group-name">Editing</div>
   </div>`;
 
+  const INSERT_HTML = `
+  <div class="group">
+    <div class="group-body">
+      <div class="stack">
+        <button class="rb" data-cmd="pivot" title="PivotTable"><span class="ico">&#9638;</span><span>PivotTable</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="recPivot" title="Recommended PivotTables"><span class="ico">&#9783;</span><span>Recommended PivotTables</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="table" title="Format selection as a table"><span class="ico">&#9638;</span><span>Table</span></button>
+      </div>
+    </div>
+    <div class="group-name">Tables</div>
+  </div>
+
+  <div class="group">
+    <div class="group-body">
+      <div class="stack">
+        <button class="rb" data-cmd="pictures" title="Pictures"><span class="ico">&#128444;</span><span>Pictures</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="onlinePics" title="Online Pictures"><span class="ico">&#127760;</span><span>Online Pictures</span></button>
+      </div>
+    </div>
+    <div class="group-name">Illustrations</div>
+  </div>
+
+  <div class="group">
+    <div class="group-body">
+      <div class="stack">
+        <button class="rb" data-cmd="store" title="Store"><span class="ico">&#127968;</span><span>Store</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="myAddins" title="My Add-ins"><span class="ico">&#10010;</span><span>My Add-ins</span></button>
+      </div>
+    </div>
+    <div class="group-name">Add-ins</div>
+  </div>
+
+  <div class="group">
+    <div class="group-body">
+      <div class="stack">
+        <button class="rb" data-cmd="recCharts" title="Recommended Charts"><span class="ico">&#128202;</span><span>Recommended Charts</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="colChart" title="Column or Bar chart"><span class="ico">&#128200;</span><span>Column</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="pivotChart" title="PivotChart"><span class="ico">&#9638;</span><span>PivotChart</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="map3d" title="3D Map"><span class="ico">&#127758;</span><span>3D Map</span></button>
+      </div>
+    </div>
+    <div class="group-name">Charts</div>
+  </div>
+
+  <div class="group">
+    <div class="group-body">
+      <div class="stack">
+        <button class="rb" data-cmd="sparkLine" title="Line sparkline"><span class="ico">&#8767;</span><span>Line</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="sparkColumn" title="Column sparkline"><span class="ico">&#9646;</span><span>Column</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="sparkWinLoss" title="Win/Loss sparkline"><span class="ico">&#9632;</span><span>Win/Loss</span></button>
+      </div>
+    </div>
+    <div class="group-name">Sparklines</div>
+  </div>
+
+  <div class="group">
+    <div class="group-body">
+      <div class="stack">
+        <button class="rb" data-cmd="slicer" title="Slicer"><span class="ico">&#9776;</span><span>Slicer</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="timeline" title="Timeline"><span class="ico">&#128197;</span><span>Timeline</span></button>
+      </div>
+    </div>
+    <div class="group-name">Filters</div>
+  </div>
+
+  <div class="group">
+    <div class="group-body">
+      <div class="stack">
+        <button class="rb" data-cmd="hyperlink" title="Insert hyperlink"><span class="ico">&#128279;</span><span>Hyperlink</span></button>
+      </div>
+    </div>
+    <div class="group-name">Links</div>
+  </div>
+
+  <div class="group">
+    <div class="group-body">
+      <div class="stack">
+        <button class="rb" data-cmd="textBox" title="Text Box"><span class="ico">&#9633;</span><span>Text Box</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="headerFooter" title="Header &amp; Footer"><span class="ico">&#9776;</span><span>Header &amp; Footer</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="wordArt" title="WordArt"><span class="ico">A</span><span>WordArt</span></button>
+      </div>
+    </div>
+    <div class="group-name">Text</div>
+  </div>
+
+  <div class="group">
+    <div class="group-body">
+      <div class="stack">
+        <button class="rb" data-cmd="equation" title="Equation"><span class="ico">&pi;</span><span>Equation</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="symbol" title="Symbol"><span class="ico">&Omega;</span><span>Symbol</span></button>
+      </div>
+    </div>
+    <div class="group-name">Symbols</div>
+  </div>`;
+
+  // Table: header row in green with bold text, banded rows below
+  function formatAsTable() {
+    const R = range();
+    if (R.r1 === R.r2 && R.c1 === R.c2) return toast("Select a range first");
+    forRange(R, (r, c) => {
+      const cell = getOrCreate(r, c);
+      const header = r === R.r1;
+      cell.s.fill = header ? "#107c41" : ((r - R.r1) % 2 ? "#ffffff" : "#e9f3ec");
+      cell.s.color = header ? "#ffffff" : "#201f1e";
+      if (header) cell.s.bold = true;
+    });
+    refresh();
+    toast("Range formatted as table");
+  }
+
+  // Hyperlink: the typed text in the active cell becomes a link (Ctrl+click opens it)
+  function insertHyperlink() {
+    const url = window.prompt("Link address", "https://");
+    if (!url || url.trim() === "https://") return;
+    const link = url.trim();
+    const cell = getOrCreate(S.ar, S.ac);
+    if (!cell.v) cell.v = link;
+    cell.link = link;
+    cell.s.color = "#0563c1";
+    cell.s.underline = true;
+    refresh();
+  }
+
   function renderRibbon(tab) {
-    ribbon.innerHTML = tab === "Home" ? HOME_HTML : `<div class="placeholder">${tab} tab: coming in the next update</div>`;
+    const html = tab === "Home" ? HOME_HTML
+      : tab === "Insert" ? INSERT_HTML
+      : `<div class="placeholder">${tab} tab: coming in the next update</div>`;
+    ribbon.innerHTML = html;
     updateRibbon();
   }
 
@@ -722,6 +879,8 @@
         const cur = st.dec ?? (st.nf === "percent" ? 0 : 2);
         return applyStyle({ dec: clamp(cur + (cmd === "decUp" ? 1 : -1), 0, 10) });
       }
+      case "table": return formatAsTable();
+      case "hyperlink": return insertHyperlink();
       case "autoSum": return autoSum();
       case "clearAll": return clearAll();
       default: return toast("Coming soon: " + cmd);
