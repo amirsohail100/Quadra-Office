@@ -50,6 +50,74 @@
     });
   }
 
+  function renderTable(sh, tv, o) {
+    const rows = sh.cells.length, cols = sh.cells[0].length;
+    const t = el('div', 'sl-tbl', { gridTemplateColumns: 'repeat(' + cols + ',1fr)', gridTemplateRows: 'repeat(' + rows + ',1fr)' });
+    sh.cells.forEach((row, r) => row.forEach((txt, c) => {
+      const hd = sh.header && r === 0;
+      const editing = o.editing === sh.id && o.editCell && o.editCell[0] === r && o.editCell[1] === c;
+      const cell = el('div', 'sl-cell' + (hd ? ' hd' : '') + (editing ? ' sl-tin' : ''));
+      cell.dataset.r = r; cell.dataset.c = c;
+      applyTextStyle(cell, sh, tv, false);
+      cell.style.border = '1px solid rgba(128,128,128,.55)';
+      if (hd) { cell.style.background = tv.accent; cell.style.color = sh.ts.color || Q.contrastColor(tv.accent); cell.style.fontWeight = '700'; }
+      else if (r % 2 === 0) cell.style.background = 'rgba(128,128,128,.10)';
+      if (editing) { cell.contentEditable = 'plaintext-only'; cell.spellcheck = false; }
+      cell.textContent = txt;
+      t.appendChild(cell);
+    }));
+    return t;
+  }
+
+  function renderChart(sh, tv) {
+    const c = sh.chart, w = sh.w, h = sh.h, fs = pxOf(sh.ts.size || 14), fg = sh.ts.color || tv.fg;
+    const svg = svgEl('svg', { viewBox: '0 0 ' + w + ' ' + h, preserveAspectRatio: 'none' });
+    const T = (x, y, txt, anchor, extra) => {
+      const t = svgEl('text', Object.assign({ x, y, 'text-anchor': anchor || 'middle', 'font-size': fs, fill: fg, 'font-family': tv.body.replace(/"/g, "'") }, extra || {}));
+      t.textContent = txt; svg.appendChild(t);
+    };
+    const fmt = (v) => String(Math.round(v * 100) / 100);
+    const top = c.title ? fs * 2.4 : fs;
+    if (c.title) T(w / 2, fs * 1.5, c.title, 'middle', { 'font-weight': '700' });
+    const n = c.labels.length;
+    if (!n) { T(w / 2, h / 2, 'No data'); return svg; }
+    const pal = tv.swatch;
+    if (c.kind === 'pie') {
+      const vals = c.values.map((v) => Math.max(0, v)), sum = vals.reduce((a, b) => a + b, 0) || 1;
+      const r = Math.max(10, Math.min(w * 0.3, (h - top - fs) / 2)), cx = w * 0.34, cy = top + (h - top) / 2;
+      let a0 = -Math.PI / 2;
+      vals.forEach((v, k) => {
+        const a1 = a0 + (v / sum) * Math.PI * 2, color = pal[k % pal.length];
+        if (v / sum > 0.9999) svg.appendChild(svgEl('circle', { cx, cy, r, fill: color }));
+        else if (v > 0) svg.appendChild(svgEl('path', { d: 'M' + cx + ' ' + cy + 'L' + (cx + r * Math.cos(a0)) + ' ' + (cy + r * Math.sin(a0)) + 'A' + r + ' ' + r + ' 0 ' + (a1 - a0 > Math.PI ? 1 : 0) + ' 1 ' + (cx + r * Math.cos(a1)) + ' ' + (cy + r * Math.sin(a1)) + 'Z', fill: color, stroke: tv.bg, 'stroke-width': 2 }));
+        a0 = a1;
+        const ly = top + k * fs * 1.7 + fs;
+        svg.appendChild(svgEl('rect', { x: w * 0.7, y: ly - fs * 0.8, width: fs * 0.9, height: fs * 0.9, fill: color }));
+        T(w * 0.7 + fs * 1.3, ly, c.labels[k] + ' (' + fmt(c.values[k]) + ')', 'start');
+      });
+      return svg;
+    }
+    const L = fs * 3.4, R = fs, B = fs * 2.4, ch = h - top - B, cw = w - L - R;
+    const max = Math.max(1, Math.max.apply(null, c.values)), min = Math.min(0, Math.min.apply(null, c.values)), span = max - min;
+    const y = (v) => top + ch - ((v - min) / span) * ch;
+    for (let k = 0; k <= 4; k++) {
+      const v = min + (span * k) / 4, yy = y(v);
+      svg.appendChild(svgEl('line', { x1: L, x2: w - R, y1: yy, y2: yy, stroke: fg, 'stroke-opacity': 0.2 }));
+      T(L - 8, yy + fs * 0.35, fmt(v), 'end');
+    }
+    const sw = cw / n;
+    if (c.kind === 'line') {
+      const pts = c.values.map((v, k) => (L + (k + 0.5) * sw) + ',' + y(v));
+      svg.appendChild(svgEl('polyline', { points: pts.join(' '), fill: 'none', stroke: tv.accent, 'stroke-width': 3, 'stroke-linejoin': 'round' }));
+      c.values.forEach((v, k) => svg.appendChild(svgEl('circle', { cx: L + (k + 0.5) * sw, cy: y(v), r: 5, fill: tv.accent })));
+    } else {
+      const bw = sw * 0.6;
+      c.values.forEach((v, k) => svg.appendChild(svgEl('rect', { x: L + k * sw + (sw - bw) / 2, y: Math.min(y(v), y(0)), width: bw, height: Math.abs(y(v) - y(0)), fill: tv.accent })));
+    }
+    c.labels.forEach((lb, k) => T(L + (k + 0.5) * sw, h - B + fs * 1.4, lb));
+    return svg;
+  }
+
   function renderShape(pres, sh, tv, o) {
     const isLine = Q.isLineType(sh.type);
     const hit = isLine ? Math.max(14, sh.h) : sh.h;
@@ -58,6 +126,7 @@
     Object.assign(d.style, { left: sh.x + 'px', top: (isLine ? sh.y - hit / 2 : sh.y) + 'px', width: sh.w + 'px', height: hit + 'px' });
     if (sh.rot) d.style.transform = 'rotate(' + sh.rot + 'deg)';
     if (o.hidden && o.hidden.has(sh.id)) { d.style.visibility = 'hidden'; d.dataset.hidden = '1'; }
+    if (sh.link) { d.dataset.link = sh.link.type; d.dataset.linkTarget = sh.link.type === 'url' ? sh.link.url : String(sh.link.index); d.title = sh.link.type === 'url' ? sh.link.url : 'Go to slide ' + (sh.link.index + 1); }
 
     if (sh.type === 'rect' || sh.type === 'oval' || sh.type === 'textbox') {
       if (sh.fill) d.style.background = sh.fill;
@@ -73,6 +142,16 @@
     } else if (sh.type === 'picture') {
       if (sh.src) { const img = el('img'); img.src = sh.src; img.alt = sh.alt || ''; img.draggable = false; d.appendChild(img); }
       else { d.style.background = '#d9d9d9'; d.style.border = '1px solid #aaa'; }
+    } else if (sh.type === 'table') {
+      d.appendChild(renderTable(sh, tv, o));
+    } else if (sh.type === 'chart') {
+      d.appendChild(renderChart(sh, tv));
+    } else if (sh.type === 'video' || sh.type === 'audio') {
+      if (sh.src) {
+        const m = el(sh.type); m.src = sh.src; m.controls = true; m.preload = 'metadata'; m.style.cssText = 'width:100%;height:100%;display:block;background:#000';
+        if (sh.type === 'audio') m.style.background = 'transparent';
+        d.appendChild(m);
+      } else { d.style.background = sh.type === 'video' ? '#222' : '#e6e6e6'; d.style.border = '1px solid #888'; }
     } else if (sh.type === 'ink') {
       const svg = svgEl('svg', { viewBox: '0 0 ' + sh.w + ' ' + sh.h, preserveAspectRatio: 'none' });
       const ln = sh.line || { color: '#111', width: 3, alpha: 1 };
@@ -125,6 +204,12 @@
     if (pres.footer.show && pres.footer.text) {
       const f = el('div', 'sl-ft', { bottom: '18px', color: tv.fg }); f.textContent = pres.footer.text; s.appendChild(f);
     }
+    if (pres.footer.numbers) {
+      const n = el('div', 'sl-ft sl-num', { bottom: '18px', right: '28px', left: 'auto', textAlign: 'right', color: tv.fg }); n.textContent = String(pres.slides.indexOf(slide) + 1); s.appendChild(n);
+    }
+    if (o.comments && slide.comments.length) {
+      const cm = el('div', 'sl-cm'); cm.textContent = String(slide.comments.length); cm.title = slide.comments.length + ' comment(s)'; s.appendChild(cm);
+    }
     return s;
   }
 
@@ -146,7 +231,7 @@
 
   // ================= editor state =================
   const E = {
-    pres: null, cur: 0, sel: [], editing: null, tool: 'select',
+    pres: null, cur: 0, sel: [], editing: null, editCell: null, tool: 'select',
     pen: { color: '#111111', width: 3, alpha: 1 },
     zoom: { mode: 'fit', value: 1 }, showActive: false, focusArea: 'canvas',
     renderSlide, applyTextStyle, ZOOM_STEPS,
@@ -291,8 +376,34 @@
   E.order = (where) => { if (E.sel.length) E.mutate(() => E.sel.forEach((id) => E.pres.reorderShape(E.cur, id, where))); };
   E.rotateBy = (deg) => { E.mutate(() => E.selShapes().forEach((s) => { s.rot = ((s.rot + deg) % 360 + 360) % 360; })); };
 
+  // ---- tables, links, inserting text ----
+  E.addTable = (rows, cols) => E.addShape('table', { rows, cols });
+  E.tableTab = (dir) => {
+    const id = E.editing, sh = E.shape(id), c = E.editCell; if (!sh || !c) return;
+    const rows = sh.cells.length, cols = sh.cells[0].length; let idx = c[0] * cols + c[1] + dir;
+    const t = editEl(); if (t) sh.cells[c[0]][c[1]] = readEditable(t);
+    if (idx >= rows * cols) { E.mutate(() => E.pres.tableOp(E.cur, id, 'addRow', rows)); idx = rows * cols; }
+    if (idx < 0) idx = 0;
+    const nc = [Math.floor(idx / cols), idx % cols];
+    E.editCell = nc; E.renderCanvas(); E.emit('edit');
+  };
+  E.tableOp = (op, id, at) => { E.stopEdit(); E.mutate(() => E.pres.tableOp(E.cur, id, op, at)); };
+  E.setLink = (link) => {
+    if (!E.sel.length) return false; let ok = true;
+    E.mutate(() => E.sel.forEach((id) => { if (!E.pres.setLink(E.cur, id, link)) ok = false; }));
+    return ok;
+  };
+  E.insertText = (str) => {
+    if (E.editing) { const t = editEl(); if (t) { t.focus(); document.execCommand('insertText', false, str); return true; } }
+    const s = E.selShapes()[0];
+    if (s && Q.canHoldText(s)) { E.mutate(() => { s.text += str; }); return true; }
+    if (s && s.type === 'table') { E.mutate(() => { s.cells[0][0] += str; }); return true; }
+    return !!E.addShape('textbox', { text: str });
+  };
+
   // ---- text style ----
-  E.textShapes = () => E.selShapes().filter(Q.canHoldText);
+  E.textShapes = () => E.selShapes().filter(Q.hasTextStyle);
+  const isEditable = (sh) => Q.canHoldText(sh) || sh.type === 'table';
   E.getStyle = () => { const t = E.textShapes(); return t.length ? t[0].ts : null; };
   E.setStyle = (patch) => {
     const t = E.textShapes(); if (!t.length) return;
@@ -332,9 +443,12 @@
     opts = opts || {};
     if (E.editing === id) return;
     E.stopEdit();
-    const sh = E.shape(id); if (!sh || !Q.canHoldText(sh)) return;
+    const sh = E.shape(id); if (!sh || !isEditable(sh)) return;
     E.begin(); E.editing = id; E.sel = [id];
-    if (opts.append) sh.text += opts.append; // typed character goes into the model first, so it can never be lost
+    if (sh.type === 'table') {
+      const cell = opts.cell || [0, 0]; E.editCell = [Q.clamp(cell[0], 0, sh.cells.length - 1), Q.clamp(cell[1], 0, sh.cells[0].length - 1)];
+      if (opts.append) sh.cells[E.editCell[0]][E.editCell[1]] += opts.append;
+    } else if (opts.append) sh.text += opts.append; // typed character goes into the model first, so it can never be lost
     E.renderCanvas(); focusEdit(); E.emit('selection'); E.emit('edit');
     if (opts.append) { E.emit('change', 'text'); }
   };
@@ -350,9 +464,9 @@
   }
   E.stopEdit = (silent) => {
     if (!E.editing) return;
-    const id = E.editing; E.editing = null;
+    const id = E.editing, cell = E.editCell; E.editing = null; E.editCell = null;
     const t = editEl(); const sh = E.slide() && E.shape(id);
-    if (t && sh) sh.text = readEditable(t);
+    if (t && sh) { if (sh.type === 'table' && cell) sh.cells[cell[0]][cell[1]] = readEditable(t); else sh.text = readEditable(t); }
     if (!silent) { E.endGesture(); E.renderCanvas(); scheduleThumbs(); E.emit('edit'); E.emit('selection'); E.emit('change', 'all'); }
   };
 
@@ -376,7 +490,7 @@
     stage.textContent = '';
     stage.style.width = Math.round(pres.W * z) + 'px'; stage.style.height = Math.round(pres.H * z) + 'px';
     stage.style.setProperty('--inv', String(1 / z));
-    const s = renderSlide(pres, E.slide(), { prompts: true, selection: new Set(E.sel), editing: E.editing, handles: E.sel.length === 1 && !E.editing && E.tool === 'select' });
+    const s = renderSlide(pres, E.slide(), { prompts: true, comments: E.showComments !== false, selection: new Set(E.sel), editing: E.editing, editCell: E.editCell, handles: E.sel.length === 1 && !E.editing && E.tool === 'select' });
     s.style.transform = 'scale(' + z + ')';
     stage.appendChild(s);
     if (g && g.kind === 'marquee' && g.rect) {
@@ -464,6 +578,16 @@
     }
     return null;
   };
+  function cellAt(sh, pt) {
+    const cx = sh.x + sh.w / 2, cy = sh.y + sh.h / 2, a = -sh.rot * Math.PI / 180, dx = pt.x - cx, dy = pt.y - cy;
+    const lx = dx * Math.cos(a) - dy * Math.sin(a) + sh.w / 2, ly = dx * Math.sin(a) + dy * Math.cos(a) + sh.h / 2;
+    const rows = sh.cells.length, cols = sh.cells[0].length;
+    return [Q.clamp(Math.floor(ly / (sh.h / rows)), 0, rows - 1), Q.clamp(Math.floor(lx / (sh.w / cols)), 0, cols - 1)];
+  }
+  E.hitAt = (clientX, clientY) => {
+    const r = stage.getBoundingClientRect(), z = E.z(), pt = { x: (clientX - r.left) / z, y: (clientY - r.top) / z };
+    const sh = hitShape(pt); return sh ? { shape: sh, cell: sh.type === 'table' ? cellAt(sh, pt) : null } : null;
+  };
   function slidePt(ev) {
     const r = stage.getBoundingClientRect(), z = E.z();
     return { x: (ev.clientX - r.left) / z, y: (ev.clientY - r.top) / z };
@@ -511,8 +635,10 @@
     }
     const hit = hitShape(pt);
     const now = Date.now(), ld = lastDown; lastDown = { t: now, x: ev.clientX, y: ev.clientY, id: hit ? hit.id : null };
-    if (hit && E.tool === 'select' && Q.canHoldText(hit) && ld && ld.id === hit.id && now - ld.t < 450 && Math.hypot(ev.clientX - ld.x, ev.clientY - ld.y) < 6) {
-      lastDown = null; ev.preventDefault(); E.startEdit(hit.id); return; // double-click (the canvas is rebuilt between clicks, so the native dblclick is unreliable)
+    if (hit && E.tool === 'select' && (isEditable(hit) || hit.type === 'chart') && ld && ld.id === hit.id && now - ld.t < 450 && Math.hypot(ev.clientX - ld.x, ev.clientY - ld.y) < 6) {
+      lastDown = null; ev.preventDefault();
+      if (hit.type === 'chart') { E.select([hit.id]); E.emit('editchart', hit.id); return; }
+      E.startEdit(hit.id, hit.type === 'table' ? { cell: cellAt(hit, pt) } : undefined); return; // double-click (the canvas is rebuilt between clicks, so the native dblclick is unreliable)
     }
     if (hit) {
       if (painter) {
@@ -620,13 +746,14 @@
     if (E.tool !== 'select') return;
     if (E.editing && ev.target.closest && ev.target.closest('.sl-tin[contenteditable]')) return;
     const hit = hitShape(slidePt(ev));
-    if (hit && Q.canHoldText(hit)) E.startEdit(hit.id);
+    if (hit && isEditable(hit)) E.startEdit(hit.id, hit.type === 'table' ? { cell: cellAt(hit, slidePt(ev)) } : undefined);
   }
 
   function onStageInput(ev) {
     const t = ev.target.closest && ev.target.closest('.sl-tin[contenteditable]'); if (!t || !E.editing) return;
     const sh = E.shape(E.editing); if (!sh) return;
-    sh.text = readEditable(t); changed('text');
+    if (sh.type === 'table' && E.editCell) sh.cells[E.editCell[0]][E.editCell[1]] = readEditable(t); else sh.text = readEditable(t);
+    changed('text');
   }
   function onStageFocusOut(ev) {
     if (rebuilding || !E.editing) return;
@@ -644,6 +771,7 @@
     const inField = t.closest && t.closest('input,textarea,select,[contenteditable]');
     if (inEdit) {
       if (k === 'Escape') { ev.preventDefault(); E.stopEdit(); return; }
+      if (k === 'Tab' && E.editCell) { ev.preventDefault(); E.tableTab(ev.shiftKey ? -1 : 1); return; }
       if (mod && k === 'm') { ev.preventDefault(); E.newSlide(); }
       return; // everything else is native text editing
     }
@@ -667,7 +795,10 @@
       return;
     }
     if (k === 'Enter' || k === 'F2') {
-      if (E.sel.length === 1) { const s = E.shape(E.sel[0]); if (s && Q.canHoldText(s)) { ev.preventDefault(); E.startEdit(s.id); } }
+      if (E.sel.length === 1) {
+        const s = E.shape(E.sel[0]);
+        if (s && isEditable(s)) { ev.preventDefault(); E.startEdit(s.id); } else if (s && s.type === 'chart') { ev.preventDefault(); E.emit('editchart', s.id); }
+      }
       return;
     }
     if (k.indexOf('Arrow') === 0) {
@@ -686,7 +817,7 @@
     // typing with a shape selected starts text editing and keeps the typed character
     if (ev.key.length === 1 && E.sel.length === 1 && E.tool === 'select') {
       const s = E.shape(E.sel[0]);
-      if (s && Q.canHoldText(s)) { ev.preventDefault(); E.startEdit(s.id, { append: ev.key }); }
+      if (s && isEditable(s)) { ev.preventDefault(); E.startEdit(s.id, { append: ev.key }); }
     }
   }
 
