@@ -442,6 +442,97 @@ class LayoutAndDesign(QuadraCase):
         self.assertIn("Georgia", self.page.evaluate("getComputedStyle(document.getElementById('sheet')).getPropertyValue('--doc-font')"))
 
 
+class ProfileAndApps(QuadraCase):
+    def test_profile_panel_shows_name_and_local_profile(self):
+        self.page.click("#btn-profile")
+        self.assertEqual(self.page.inner_text(".panel-name"), "Quadra User")
+        self.assertEqual(self.page.inner_text(".panel-sub"), "Local profile")
+        labels = self.page.locator(".menu.panel .pi-label").all_inner_texts()
+        self.assertEqual(labels, ["Dark mode", "Options", "Account", "Sign out"])
+
+    def test_dark_mode_item_toggles_theme_and_switch_state(self):
+        self.page.click("#btn-profile")
+        self.page.click(".pi:has-text('Dark mode')")
+        self.assertEqual(self.page.get_attribute("html", "data-theme"), "light")
+        self.page.click("#btn-profile")
+        self.assertEqual(self.page.get_attribute(".menu.panel .switch", "data-on"), "false")
+        self.page.keyboard.press("Escape")
+        self.assertTrue(self.page.locator("#menu").is_hidden())
+
+    def test_account_dialog_renames_profile_and_avatar_initials(self):
+        self.page.click("#btn-profile")
+        self.page.click(".pi:has-text('Account')")
+        self.page.fill("#dlg input[type=text]", "Asha Rao")
+        self.page.click("#dlg-actions button.primary")
+        self.assertEqual(self.page.inner_text("#btn-profile"), "AR")
+        stored = json.loads(self.page.evaluate("localStorage.getItem('quadra.profile.v1')"))
+        self.assertEqual(stored["name"], "Asha Rao")
+
+    def test_options_save_default_paper_used_by_new_document(self):
+        self.page.click("#btn-profile")
+        self.page.click(".pi:has-text('Options')")
+        self.page.select_option("#dlg select", "Letter")
+        self.page.click("#dlg-actions button.primary")
+        self.page.click("#tab-file")
+        self.page.click("[data-bs=new]")
+        self.page.click("#bs-pane button.primary")
+        self.assertEqual(self.doc()["section"]["size"], "Letter")
+
+    def test_sign_out_resets_profile_name(self):
+        self.page.click("#btn-profile")
+        self.page.click(".pi:has-text('Account')")
+        self.page.fill("#dlg input[type=text]", "Someone Else")
+        self.page.click("#dlg-actions button.primary")
+        self.page.click("#btn-profile")
+        self.page.click(".pi:has-text('Sign out')")
+        self.page.click("#dlg-actions button.primary")
+        self.assertEqual(self.page.inner_text("#btn-profile"), "QU")
+
+    def test_apps_launcher_lists_six_apps_with_word_current(self):
+        self.page.click("#btn-launcher")
+        self.assertEqual(self.page.inner_text(".apps-title"), "Quadra apps")
+        names = self.page.locator(".app-tile span:not(.app-ico)").all_inner_texts()
+        self.assertEqual(names, ["Excel", "Word", "PowerPoint", "Outlook", "OneDrive", "OneNote"])
+        self.assertEqual(self.page.locator(".app-tile.current span:not(.app-ico)").inner_text(), "Word")
+
+    def test_apps_launcher_links_open_in_new_tab(self):
+        self.page.click("#btn-launcher")
+        tile = self.page.locator(".app-tile", has_text="Excel")
+        self.assertEqual(tile.get_attribute("target"), "_blank")
+        self.assertIn("excel", tile.get_attribute("href"))
+
+
+class CanvasAndTyping(QuadraCase):
+    def test_canvas_follows_light_theme(self):
+        self.page.click("#btn-theme")
+        bg = self.page.evaluate("getComputedStyle(document.getElementById('canvas')).backgroundColor")
+        self.assertEqual(bg, "rgb(201, 209, 218)")
+
+    def test_canvas_follows_dark_theme_after_switching_back(self):
+        self.page.click("#btn-theme")
+        self.page.click("#btn-theme")
+        bg = self.page.evaluate("getComputedStyle(document.getElementById('canvas')).backgroundColor")
+        self.assertEqual(bg, "rgb(16, 19, 22)")
+
+    def test_document_body_has_no_focus_box(self):
+        self.focus_body()
+        self.type_("x")
+        outline = self.page.evaluate("getComputedStyle(document.getElementById('doc-body')).outlineStyle")
+        self.assertEqual(outline, "none")
+
+    def test_typing_does_not_rebuild_untouched_paragraphs(self):
+        self.focus_body()
+        self.type_("first")
+        self.page.keyboard.press("Enter")
+        self.type_("second")
+        before = self.page.evaluate("() => { const e = document.querySelector('#doc-body > p'); e.__marker = 'kept'; return e.__marker; }")
+        self.type_(" more")
+        after = self.page.evaluate("document.querySelector('#doc-body > p').__marker")
+        self.assertEqual(before, "kept")
+        self.assertEqual(after, "kept")
+        self.assertEqual(self.texts(), ["first", "second more"])
+
+
 class ZoomThemeView(QuadraCase):
     def test_zoom_in_steps_and_persists(self):
         self.page.click("[data-cmd=zoom-in]")
