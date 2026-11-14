@@ -29,7 +29,7 @@
   const EMOJI = ['\u{1F600}', '\u{1F602}', '\u{1F60A}', '\u{1F60D}', '\u{1F914}', '\u{1F44D}', '\u{1F44F}', '\u{1F389}', '\u{1F525}', '\u2705', '\u274C', '\u2B50', '\u2764\uFE0F', '\u{1F4CC}', '\u{1F4CE}', '\u{1F4A1}', '\u{1F4C5}', '\u2615'];
 
   function loadPrefs() {
-    const d = { zoom: 100, theme: 'dark', canvas: 'dark', ruler: false, nav: false, view: 'single' };
+    const d = { zoom: 100, theme: 'dark', canvas: 'auto', ruler: false, nav: false, view: 'single', defaultPaper: 'A4' };
     try { return Object.assign(d, JSON.parse(localStorage.getItem(KEY_PREFS) || '{}')); } catch (err) { return d; }
   }
   const prefs = loadPrefs();
@@ -94,7 +94,7 @@
   // ---------- menus (open upward when there is no room below) ----------
   const menuEl = $('#menu');
   let menuAnchor = null;
-  function closeMenu() { menuEl.hidden = true; menuEl.textContent = ''; menuAnchor = null; }
+  function closeMenu() { menuEl.hidden = true; menuEl.textContent = ''; menuEl.classList.remove('panel'); menuAnchor = null; }
   function placeMenu(anchor) {
     menuEl.style.maxHeight = (innerHeight - 16) + 'px';
     const r = anchor.getBoundingClientRect();
@@ -225,23 +225,137 @@
       { label: 'Column Break', run: () => notAvailable('Column Break') },
     ] }),
     fields: () => ({ items: ['Name', 'Address', 'Company', 'Date'].map((f) => ({ label: f, run: () => Ed.typeText('\u00AB' + f + '\u00BB') })) }),
-    apps: () => ({ items: [
-      { label: 'Excel', hint: 'office.com', run: () => window.open('https://www.office.com/launch/excel', '_blank', 'noopener') },
-      { label: 'Word', hint: 'office.com', run: () => window.open('https://www.office.com/launch/word', '_blank', 'noopener') },
-      { label: 'PowerPoint', hint: 'office.com', run: () => window.open('https://www.office.com/launch/powerpoint', '_blank', 'noopener') },
-    ] }),
-    profile: () => ({ items: [
-      { label: 'Quadra profile (this browser only)', disabled: true },
-      '-',
-      { label: 'Account settings', run: () => notAvailable('Account settings') },
-    ] }),
+    apps: () => ({ panel: appsPanel }),
+    profile: () => ({ panel: profilePanel }),
   };
   function openNamedMenu(name, anchor) {
     const fn = MENUS[name];
     if (!fn) return;
     const spec = fn() || {};
+    if (spec.panel) return openPanel(anchor, spec.panel);
     openMenu(anchor, spec.items || [], { before: spec.before });
   }
+  function openPanel(anchor, build) {
+    closeMenu();
+    menuAnchor = anchor;
+    menuEl.classList.add('panel');
+    build(menuEl);
+    menuEl.hidden = false;
+    placeMenu(anchor);
+  }
+  function iconEl(name) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'ico');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', '#i-' + name);
+    svg.appendChild(use);
+    return svg;
+  }
+
+  // ---------- local profile (title bar avatar, profile panel, Options, Account, Sign out) ----------
+  const KEY_PROFILE = 'quadra.profile.v1';
+  const DEFAULT_PROFILE = { name: 'Quadra User', mode: 'Local profile' };
+  function loadProfile() {
+    try { return Object.assign({}, DEFAULT_PROFILE, JSON.parse(localStorage.getItem(KEY_PROFILE) || '{}')); } catch (err) { return Object.assign({}, DEFAULT_PROFILE); }
+  }
+  let profile = loadProfile();
+  function saveProfile() { try { localStorage.setItem(KEY_PROFILE, JSON.stringify(profile)); } catch (err) { /* ignore */ } }
+  function initialsOf(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    const a = (parts[0] || 'Q')[0], b = (parts[1] || parts[0] || 'Q')[0];
+    return (a + b).toUpperCase();
+  }
+  function applyProfile() {
+    const btn = $('#btn-profile');
+    btn.textContent = initialsOf(profile.name);
+    btn.setAttribute('aria-label', 'Profile: ' + profile.name);
+  }
+  function profilePanel(root) {
+    const item = (icon, label, run, right) => h('button', {
+      class: 'pi', type: 'button', role: 'menuitem',
+      onclick: () => { closeMenu(); if (run) run(); },
+    }, iconEl(icon), h('span', { class: 'pi-label', text: label }), right || null);
+    root.appendChild(h('div', { class: 'panel-head' },
+      h('div', { class: 'panel-avatar', text: initialsOf(profile.name) }),
+      h('div', {},
+        h('div', { class: 'panel-name', text: profile.name }),
+        h('div', { class: 'panel-sub', text: profile.mode }))));
+    root.appendChild(h('div', { class: 'menu-sep' }));
+    root.appendChild(h('div', { class: 'panel-body' },
+      item('moon', 'Dark mode', () => toggleTheme(), h('span', { class: 'switch', 'data-on': String(prefs.theme === 'dark') })),
+      item('sliders', 'Options', () => openOptions()),
+      item('profile', 'Account', () => openAccount())));
+    root.appendChild(h('div', { class: 'menu-sep' }));
+    root.appendChild(h('div', { class: 'panel-body' },
+      item('logout', 'Sign out', () => openSignOut())));
+  }
+  const APPS = [
+    { label: 'Excel', cls: 'excel', letter: 'X', url: 'https://www.office.com/launch/excel' },
+    { label: 'Word', cls: 'word', letter: 'W', url: 'https://www.office.com/launch/word', current: true },
+    { label: 'PowerPoint', cls: 'ppt', letter: 'P', url: 'https://www.office.com/launch/powerpoint' },
+    { label: 'Outlook', cls: 'outlook', letter: 'O', url: 'https://outlook.live.com/mail/' },
+    { label: 'OneDrive', cls: 'onedrive', letter: 'D', url: 'https://onedrive.live.com/' },
+    { label: 'OneNote', cls: 'onenote', letter: 'N', url: 'https://www.onenote.com/notebooks' },
+  ];
+  function appsPanel(root) {
+    root.appendChild(h('div', { class: 'apps-title', text: 'Quadra apps' }));
+    const grid = h('div', { class: 'apps-grid' });
+    APPS.forEach((a) => grid.appendChild(h('a', {
+      class: 'app-tile' + (a.current ? ' current' : ''), href: a.url, target: '_blank', rel: 'noopener',
+      'aria-current': a.current ? 'page' : null,
+      onclick: () => closeMenu(),
+    }, h('span', { class: 'app-ico ' + a.cls, text: a.letter }), h('span', { text: a.label }))));
+    root.appendChild(grid);
+  }
+
+  function openOptions() {
+    const paper = h('select', { 'aria-label': 'Default paper size' },
+      ['A4', 'Letter', 'Legal'].map((v) => h('option', { value: v, selected: prefs.defaultPaper === v ? '' : null }, v)));
+    const ruler = h('input', { type: 'checkbox', checked: !!prefs.ruler });
+    dialog('Options', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Paper size for new documents', paper),
+      h('label', { class: 'chk' }, ruler, 'Show ruler'),
+      h('p', { class: 'muted', text: 'Options are saved in this browser.' })), [
+      { label: 'Save', primary: true, onClick: () => {
+        prefs.defaultPaper = paper.value;
+        prefs.ruler = ruler.checked;
+        savePrefs();
+        applyPrefs();
+        showToast('Options saved');
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+  }
+  function openAccount() {
+    const name = h('input', { type: 'text', value: profile.name, maxlength: '40', 'aria-label': 'Display name' });
+    dialog('Account', h('div', { class: 'stack-d' },
+      h('label', { class: 'profile-field' }, 'Display name', name),
+      h('p', { class: 'muted', text: 'This local profile lives only in this browser. Quadra has no account server yet.' })), [
+      { label: 'Save', primary: true, onClick: () => {
+        profile.name = name.value.trim() || DEFAULT_PROFILE.name;
+        saveProfile();
+        applyProfile();
+        showToast('Profile updated');
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+    name.focus();
+  }
+  function openSignOut() {
+    dialog('Sign out', h('p', { text: 'Sign out of the local profile? Your documents stay in this browser. The display name goes back to Quadra User.' }), [
+      { label: 'Sign out', primary: true, onClick: () => {
+        profile = Object.assign({}, DEFAULT_PROFILE);
+        saveProfile();
+        applyProfile();
+        showToast('Signed out of the local profile');
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+  }
+
 
   // ---------- command registry (ribbon buttons, title bar, status bar) ----------
   const CMD = {};
@@ -421,12 +535,18 @@
   }
   function applyTheme() {
     document.documentElement.dataset.theme = prefs.theme;
-    document.documentElement.dataset.canvas = prefs.canvas;
+    document.documentElement.dataset.canvas = prefs.canvas === 'auto' ? prefs.theme : prefs.canvas;
     $('#btn-theme').setAttribute('aria-pressed', String(prefs.theme === 'dark'));
     $$('[data-toggle="dark"]').forEach((b) => b.setAttribute('aria-pressed', String(prefs.theme === 'dark')));
   }
   function toggleTheme() { prefs.theme = prefs.theme === 'dark' ? 'light' : 'dark'; savePrefs(); applyTheme(); }
-  function toggleCanvas() { prefs.canvas = prefs.canvas === 'dark' ? 'light' : 'dark'; savePrefs(); applyTheme(); }
+  function toggleCanvas() {
+    const cur = prefs.canvas === 'auto' ? prefs.theme : prefs.canvas;
+    const next = cur === 'dark' ? 'light' : 'dark';
+    prefs.canvas = next === prefs.theme ? 'auto' : next;
+    savePrefs();
+    applyTheme();
+  }
   function setView(v) {
     prefs.view = v;
     savePrefs();
@@ -572,6 +692,7 @@
     $('#doc-title').value = d.title;
     document.title = d.title + ' - Quadra Word';
     applyPrefs();
+    applyProfile();
     Ed.on('change', () => { refresh(); scheduleSave(); });
     Ed.on('selection', () => { updateToolbar(); updatePages(); });
     wire();
@@ -825,7 +946,9 @@
       h('p', { text: 'The current document is kept as a version snapshot first, so you can restore it from Version History.' }),
       h('div', { class: 'row-b' }, h('button', { class: 'btn primary', type: 'button', onclick: () => {
         saveVersion('Before New');
-        Ed.setDoc(E.createDoc());
+        const nd = E.createDoc();
+        E.setSection(nd, { size: U.prefs.defaultPaper || 'A4' });
+        Ed.setDoc(nd);
         U.saveNow(false);
         closeBackstage();
         showToast('New document created');
