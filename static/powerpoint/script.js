@@ -199,7 +199,12 @@
     s.dataset.slideId = slide.id;
     slide.shapes.forEach((sh) => {
       if (sh.ph && !o.prompts && !sh.text.trim()) return; // empty placeholders never show outside the editor
-      s.appendChild(renderShape(pres, sh, tv, o));
+      const node = renderShape(pres, sh, tv, o);
+      if (o.animBadges) {
+        const idx = []; slide.anims.forEach((a, k) => { if (a.shapeId === sh.id) idx.push(k + 1); });
+        if (idx.length) { const b = el('div', 'sl-anb'); b.textContent = idx.join(','); b.title = 'Animation ' + idx.join(', '); node.appendChild(b); }
+      }
+      s.appendChild(node);
     });
     if (pres.footer.show && pres.footer.text) {
       const f = el('div', 'sl-ft', { bottom: '18px', color: tv.fg }); f.textContent = pres.footer.text; s.appendChild(f);
@@ -490,7 +495,7 @@
     stage.textContent = '';
     stage.style.width = Math.round(pres.W * z) + 'px'; stage.style.height = Math.round(pres.H * z) + 'px';
     stage.style.setProperty('--inv', String(1 / z));
-    const s = renderSlide(pres, E.slide(), { prompts: true, comments: E.showComments !== false, selection: new Set(E.sel), editing: E.editing, editCell: E.editCell, handles: E.sel.length === 1 && !E.editing && E.tool === 'select' });
+    const s = renderSlide(pres, E.slide(), { prompts: true, animBadges: true, comments: E.showComments !== false, selection: new Set(E.sel), editing: E.editing, editCell: E.editCell, handles: E.sel.length === 1 && !E.editing && E.tool === 'select' });
     s.style.transform = 'scale(' + z + ')';
     stage.appendChild(s);
     if (g && g.kind === 'marquee' && g.rect) {
