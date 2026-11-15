@@ -4,7 +4,7 @@ const App={state:null,timer:null,sel:null,
   if(!s||!s.nb){const nb=QEngine.create('My Notebook');s={nb,sec:nb.sections[0].id,page:nb.sections[0].pages[0].id,theme:'light',zoom:100,lines:false,readonly:false}}
   this.state=s},
  save(){clearTimeout(this.timer);try{localStorage.setItem(KEY,JSON.stringify(this.state));this.status('Saved')}catch(e){this.status('Save failed')}},
- later(){this.status('Saving...');clearTimeout(this.timer);this.timer=setTimeout(()=>this.save(),300)},
+ later(){try{this.page().updated=Date.now()}catch(e){}this.status('Saving...');clearTimeout(this.timer);this.timer=setTimeout(()=>this.save(),300)},
  status(t){const e=document.getElementById('saved');if(e)e.textContent=t},
  sec(){const s=this.state;return s.nb.sections.find(x=>x.id===s.sec)||s.nb.sections[0]},
  page(){const s=this.sec();return s.pages.find(p=>p.id===this.state.page)||s.pages[0]},
@@ -15,10 +15,13 @@ const App={state:null,timer:null,sel:null,
  mk(it){const c=document.getElementById('canvas'),b=document.createElement('div');b.className='box';b.dataset.id=it.id;Object.assign(b.style,{left:it.x+'px',top:it.y+'px',width:it.w+'px'});
   const g=document.createElement('div');g.className='grip';b.appendChild(g);
   if(it.type==='image'){const i=document.createElement('img');i.src=it.src;i.alt='';b.appendChild(i)}
-  else{const e=document.createElement('div');e.className='ed';e.contentEditable=!this.state.readonly;e.spellcheck=true;e.innerHTML=it.html;
+  else{const e=document.createElement('div');e.className='ed';e.contentEditable=!this.state.readonly;e.spellcheck=this.state.spell!==false;e.innerHTML=it.html;
    e.addEventListener('input',()=>{it.html=e.innerHTML;this.later();this.count()});
    e.addEventListener('keydown',ev=>{if(ev.key==='Tab'){ev.preventDefault();document.execCommand(ev.shiftKey?'outdent':'indent')}});
-   e.addEventListener('focus',()=>this.select(null));b.appendChild(e)}
+   e.addEventListener('focus',()=>this.select(null));
+   e.addEventListener('click',ev=>{if(ev.target.type==='checkbox'){ev.target.toggleAttribute('checked',ev.target.checked);it.html=e.innerHTML;this.later()}});
+   e.addEventListener('blur',()=>setTimeout(()=>{const a=document.activeElement;if(a===e||!e.isConnected)return;if(a&&a.closest&&(a.closest('#ribbon')||a.closest('#menu')||a.closest('dialog')))return;
+    if(!QEngine.plain(it.html)&&!/<(img|table|input)/.test(it.html)&&this.page().items.includes(it)){QEngine.removeItem(this.page(),it.id);b.remove();this.save()}},0));b.appendChild(e)}
   const r=document.createElement('div');r.className='rs';b.appendChild(r);
   g.addEventListener('pointerdown',ev=>{this.select(b);const sx=ev.clientX-it.x,sy=ev.clientY-it.y;g.setPointerCapture(ev.pointerId);
    g.onpointermove=m=>{it.x=Math.max(0,m.clientX-sx);it.y=Math.max(0,m.clientY-sy);b.style.left=it.x+'px';b.style.top=it.y+'px'};g.onpointerup=()=>{g.onpointermove=null;this.save()}});
