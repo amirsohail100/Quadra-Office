@@ -28,9 +28,14 @@
   const SYMBOLS = ['\u00A9', '\u00AE', '\u2122', '\u00B0', '\u00B1', '\u00D7', '\u00F7', '\u20AC', '\u00A3', '\u00A5', '\u00A7', '\u00B6', '\u2026', '\u2013', '\u2014', '\u2190', '\u2192', '\u2191', '\u2193', '\u2260', '\u2264', '\u2265', '\u221E', '\u03C0', '\u03B1', '\u03B2', '\u03A9', '\u221A', '\u00BD', '\u00BC', '\u00BE'];
   const EMOJI = ['\u{1F600}', '\u{1F602}', '\u{1F60A}', '\u{1F60D}', '\u{1F914}', '\u{1F44D}', '\u{1F44F}', '\u{1F389}', '\u{1F525}', '\u2705', '\u274C', '\u2B50', '\u2764\uFE0F', '\u{1F4CC}', '\u{1F4CE}', '\u{1F4A1}', '\u{1F4C5}', '\u2615'];
 
+  const PREFS_VERSION = 2;
   function loadPrefs() {
-    const d = { zoom: 100, theme: 'dark', canvas: 'auto', ruler: false, nav: false, view: 'single', defaultPaper: 'A4' };
-    try { return Object.assign(d, JSON.parse(localStorage.getItem(KEY_PREFS) || '{}')); } catch (err) { return d; }
+    const d = { prefsVersion: PREFS_VERSION, zoom: 100, theme: 'dark', canvas: 'auto', ruler: false, nav: false, view: 'single', defaultPaper: 'A4' };
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY_PREFS) || '{}'); } catch (err) { saved = {}; }
+    // Prefs saved before version 2 had canvas:'dark' forced by an old build; reset that one choice.
+    if (saved.prefsVersion !== PREFS_VERSION) delete saved.canvas;
+    return Object.assign(d, saved, { prefsVersion: PREFS_VERSION });
   }
   const prefs = loadPrefs();
   function savePrefs() { try { localStorage.setItem(KEY_PREFS, JSON.stringify(prefs)); } catch (err) { /* ignore */ } }
