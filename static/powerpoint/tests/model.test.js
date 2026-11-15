@@ -346,3 +346,56 @@ test('stock images, outline text, word count, slide numbers flag', () => {
   assert.ok(p.outlineText().startsWith('1. Hello world')); assert.ok(p.outlineText().includes('- one two'));
   assert.equal(p.footer.numbers, false);
 });
+
+test('v3: more transitions, several animations per shape, effect categories', () => {
+  const p = Presentation.blank(); p.addSlide('blank');
+  ['morph', 'cover', 'uncover', 'zoom', 'split'].forEach((t) => { p.setTransition(1, { type: t }); assert.equal(p.slides[1].transition.type, t); });
+  const s = p.addShape(1, 'rect');
+  const a = p.addAnim(1, s.id, 'fade'), b = p.addAnim(1, s.id, 'pulse'), c = p.addAnim(1, s.id, 'fadeout');
+  assert.equal(p.getAnims(1, s.id).length, 3); assert.deepEqual(['entrance', 'emphasis', 'exit'], [E.animCategory(a.effect), E.animCategory(b.effect), E.animCategory(c.effect)]);
+  assert.equal(p.addAnim(1, s.id, 'nope'), null); assert.equal(p.addAnim(1, 'missing', 'fade'), null);
+  p.updateAnim(1, b.id, { effect: 'spin' }); assert.equal(p.slides[1].anims[1].amount, 360); p.updateAnim(1, b.id, { amount: 90, start: 'withprev' }); assert.equal(p.slides[1].anims[1].amount, 90);
+  assert.equal(p.addAnim(1, s.id, 'wipe').dir, 'left'); assert.equal(p.addAnim(1, s.id, 'appear').dur, 0);
+  p.setAnim(1, s.id, 'zoom'); assert.equal(p.slides[1].anims[0].effect, 'zoom'); assert.equal(p.slides[1].anims.length, 5, 'setAnim changes the first one');
+  assert.ok(p.removeAnim(1, c.id)); assert.equal(p.removeAnim(1, c.id), false); p.setAnim(1, s.id, 'none'); assert.equal(p.slides[1].anims.length, 0);
+  const q = Presentation.fromJSON({ slides: [{ shapes: [{ id: 'x1', type: 'rect' }], anims: [{ shapeId: 'x1', effect: 'bogus' }, { shapeId: 'x1', effect: 'spin', start: 'weird' }] }] });
+  assert.equal(q.slides[0].anims.length, 1); assert.equal(q.slides[0].anims[0].start, 'onclick'); assert.equal(q.slides[0].anims[0].amount, 360);
+});
+
+test('v3: show state with exit and emphasis effects', () => {
+  const p = Presentation.blank();
+  const a = p.addShape(0, 'rect'), b = p.addShape(0, 'oval'), c = p.addShape(0, 'textbox');
+  p.addAnim(0, a.id, 'fade'); p.addAnim(0, a.id, 'fadeout'); p.addAnim(0, b.id, 'pulse'); p.addAnim(0, c.id, 'disappear');
+  const st = new ShowState(p, 0);
+  assert.deepEqual(st.hiddenIds(), [a.id], 'entrance hidden; emphasis and exit-only visible');
+  st.next(); assert.deepEqual(st.hiddenIds(), []); st.next(); assert.deepEqual(st.hiddenIds(), [a.id], 'exit hides again');
+  st.next(); st.next(); assert.deepEqual(st.hiddenIds().sort(), [a.id, c.id].sort()); assert.equal(st.next().kind, 'end');
+  st.prev(); assert.deepEqual(st.hiddenIds(), [a.id]); st.prev(); st.prev(); st.prev(); assert.deepEqual(st.hiddenIds(), [a.id]);
+});
+
+test('v3: automatic group counts as applied once the player finished it', () => {
+  const p = Presentation.blank(); const a = p.addShape(0, 'rect'); p.addAnim(0, a.id, 'fade', { start: 'afterprev' });
+  const st = new ShowState(p, 0); assert.deepEqual(st.hiddenIds(), [a.id]); st.autoDone(); assert.deepEqual(st.hiddenIds(), []);
+});
+
+test('v3: custom shows and ShowState with an order', () => {
+  const p = Presentation.blank(); ['b', 'c', 'd'].forEach(() => p.addSlide('blank'));
+  const ids = p.slides.map((s) => s.id);
+  assert.equal(p.addCustomShow('', ids), null); assert.equal(p.addCustomShow('x', ['nope']), null);
+  const cs = p.addCustomShow(' Short ', [ids[3], ids[1]]); assert.equal(cs.name, 'Short'); assert.deepEqual(p.customOrder(cs.id), [3, 1]);
+  const st = new ShowState(p, 0, p.customOrder(cs.id)); assert.equal(st.i, 3); assert.equal(st.next().kind, 'slide'); assert.equal(st.i, 1); assert.equal(st.isLast(), true); assert.equal(st.next().kind, 'end');
+  assert.equal(st.prev().kind, 'slide'); assert.equal(st.i, 3); st.restart(); assert.equal(st.i, 3); assert.ok(st.goTo(1)); assert.equal(st.i, 1); assert.equal(st.goTo(2), false);
+  p.deleteSlide(1); assert.deepEqual(p.customOrder(cs.id), [2], 'deleted slides drop out (indices shift)');
+  assert.ok(p.updateCustomShow(cs.id, 'New name', [ids[0]])); assert.equal(p.customShows[0].name, 'New name'); assert.equal(p.updateCustomShow(cs.id, '', [ids[0]]), null);
+  const q = Presentation.fromJSON(p.toJSON()); assert.equal(q.customShows.length, 1); assert.ok(p.removeCustomShow(cs.id)); assert.equal(p.removeCustomShow(cs.id), false);
+});
+
+test('v3: slide timings and show options', () => {
+  const p = Presentation.blank();
+  assert.deepEqual(p.slides[0].advance, { click: true, after: null }); assert.deepEqual(p.show, { useTimings: true, loop: false });
+  p.setAdvance(0, { after: 5 }); p.setAdvance(0, { click: false }); assert.deepEqual(p.slides[0].advance, { click: false, after: 5 });
+  p.setAdvance(0, { after: 0 }); assert.equal(p.slides[0].advance.after, null); p.setAdvance(0, { after: -3 }); assert.equal(p.slides[0].advance.after, null);
+  p.setShowOptions({ loop: true, useTimings: false }); assert.deepEqual(p.show, { useTimings: false, loop: true });
+  const q = Presentation.fromJSON(p.toJSON()); assert.deepEqual(q.show, p.show); assert.deepEqual(q.slides[0].advance, p.slides[0].advance);
+  const d = p.duplicateSlide(0); assert.deepEqual(p.slides[d].advance, p.slides[0].advance);
+});
