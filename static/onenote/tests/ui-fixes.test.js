@@ -4,10 +4,10 @@ await pg.goto('file://'+path.resolve(__dirname,'../index.html'));await pg.evalua
 for(const t of ['Home','Insert','Draw','View','Help']){await pg.click(`[data-tab=${t}]`);ok(await pg.$$eval('#ribbon use[href="#i-na"]',a=>a.length)===0,t+': no warning-style icon')}
 await pg.click('[data-tab=Home]');
 ok(await pg.$eval('#ribbon',e=>getComputedStyle(e).overflowY)==='hidden','ribbon has no vertical scrollbar');
-ok(await pg.$eval('#ribbon select[title=Size], #ribbon .grp:nth-child(3) select:nth-of-type(2)',e=>e.value)==='3','default font size select = 12');
+ok(await pg.$eval('#ribbon select[title=fontSize]',e=>e.value)==='3','default font size select = 12');
 await pg.mouse.click(600,300);await pg.keyboard.type('abc');
 ok(await pg.$eval('.ed',e=>getComputedStyle(e).fontSize)==='16px','text box base size is 12pt');
-ok(await pg.$eval('.grip',e=>e.offsetHeight)<=4,'grip is thin');
+await pg.mouse.move(5,5);ok(await pg.$eval('.grip',e=>getComputedStyle(e).opacity)==='0','grip hidden unless hovered');
 await pg.click('#themeBtn');
 ok(await pg.evaluate(()=>getComputedStyle(document.documentElement).colorScheme)==='dark','dark color-scheme (scrollbars, controls)');
 ok(await pg.$eval('#ribbon select',e=>getComputedStyle(e).backgroundColor)!=='rgb(255, 255, 255)','ribbon select not white in dark');
