@@ -205,7 +205,7 @@
     }
 
     // 3. gridlines
-    ctx.strokeStyle = "#e1dfdd"; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.strokeStyle = sheetOpt.gridView ? "#e1dfdd" : "rgba(0,0,0,0)"; ctx.lineWidth = 1; ctx.beginPath();
     for (let c = c0; c <= c1 + 1; c++) { const x = Math.floor(X(c)) + 0.5; ctx.moveTo(x, HDR_H); ctx.lineTo(x, H); }
     for (let r = r0; r <= r1 + 1; r++) { const y = Math.floor(Y(r)) + 0.5; ctx.moveTo(HDR_W, y); ctx.lineTo(W, y); }
     ctx.stroke();
@@ -226,6 +226,14 @@
     ctx.strokeStyle = "#107c41"; ctx.lineWidth = 2;
     ctx.strokeRect(X(S.ac) + 1, Y(S.ar) + 1, COL_W - 2, ROW_H - 2);
     ctx.restore();
+
+    // Headings hidden: blank the header bands and stop
+    if (!sheetOpt.headingsView) {
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, W, HDR_H);
+      ctx.fillRect(0, 0, HDR_W, H);
+      return;
+    }
 
     // 6. column headers (pinned to top)
     ctx.fillStyle = "#f8f9fa";
@@ -814,9 +822,114 @@
     refresh();
   }
 
+  // Sheet view options (used by draw)
+  const sheetOpt = { gridView: true, gridPrint: false, headingsView: true, headingsPrint: false };
+
+  const PAGE_LAYOUT_HTML = `
+  <div class="group">
+    <div class="group-body">
+      <div class="stack">
+        <button class="rb" data-cmd="themes" title="Themes"><span class="ico">&#127912;</span><span>Themes</span></button>
+      </div>
+      <div class="stack-col">
+        <button class="sm wide" data-cmd="colorsTheme">Colors</button>
+        <button class="sm wide" data-cmd="fontsTheme">Fonts</button>
+        <button class="sm wide" data-cmd="effectsTheme">Effects</button>
+      </div>
+    </div>
+    <div class="group-name">Themes</div>
+  </div>
+
+  <div class="group">
+    <div class="group-body">
+      <div class="stack">
+        <button class="rb" data-cmd="margins" title="Margins"><span class="ico">&#9635;</span><span>Margins</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="orientation" title="Orientation"><span class="ico">&#8635;</span><span>Orientation</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="paperSize" title="Size"><span class="ico">&#9647;</span><span>Size</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="printArea" title="Print Area"><span class="ico">&#9633;</span><span>Print Area</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="breaks" title="Breaks"><span class="ico">&#8863;</span><span>Breaks</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="background" title="Background"><span class="ico">&#128444;</span><span>Background</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="printTitles" title="Print Titles"><span class="ico">&#9776;</span><span>Print Titles</span></button>
+      </div>
+    </div>
+    <div class="group-name">Page Setup</div>
+  </div>
+
+  <div class="group">
+    <div class="group-body" style="flex-direction:column;align-items:flex-start;justify-content:center;gap:4px">
+      <div class="row"><span style="width:52px">Width:</span>
+        <select class="sel w-num" data-cmd="scaleW" title="Width"><option>Automatic</option><option>1 page</option><option>2 pages</option></select>
+      </div>
+      <div class="row"><span style="width:52px">Height:</span>
+        <select class="sel w-num" data-cmd="scaleH" title="Height"><option>Automatic</option><option>1 page</option><option>2 pages</option></select>
+      </div>
+      <div class="row"><span style="width:52px">Scale:</span>
+        <select class="sel w-num" data-cmd="scale" title="Scale"><option>100%</option><option>75%</option><option>50%</option><option>150%</option></select>
+      </div>
+    </div>
+    <div class="group-name">Scale to Fit</div>
+  </div>
+
+  <div class="group">
+    <div class="group-body" style="align-items:flex-start;gap:14px">
+      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">
+        <span style="font-size:12px">Gridlines</span>
+        <div class="row">
+          <button class="sm" data-cmd="sheetOpt" data-val="gridView" title="Show gridlines on screen">View</button>
+          <button class="sm" data-cmd="sheetOpt" data-val="gridPrint" title="Print gridlines">Print</button>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">
+        <span style="font-size:12px">Headings</span>
+        <div class="row">
+          <button class="sm" data-cmd="sheetOpt" data-val="headingsView" title="Show headings on screen">View</button>
+          <button class="sm" data-cmd="sheetOpt" data-val="headingsPrint" title="Print headings">Print</button>
+        </div>
+      </div>
+    </div>
+    <div class="group-name">Sheet Options</div>
+  </div>
+
+  <div class="group">
+    <div class="group-body">
+      <div class="stack">
+        <button class="rb" data-cmd="bringForward" title="Bring Forward"><span class="ico">&#11014;</span><span>Bring Forward</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="sendBackward" title="Send Backward"><span class="ico">&#11015;</span><span>Send Backward</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="selectionPane" title="Selection Pane"><span class="ico">&#9783;</span><span>Selection Pane</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="align" title="Align"><span class="ico">&#8801;</span><span>Align</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="group" title="Group"><span class="ico">&#9635;</span><span>Group</span></button>
+      </div>
+      <div class="stack">
+        <button class="rb" data-cmd="rotate" title="Rotate"><span class="ico">&#8635;</span><span>Rotate</span></button>
+      </div>
+    </div>
+    <div class="group-name">Arrange</div>
+  </div>`;
+
   function renderRibbon(tab) {
     const html = tab === "Home" ? HOME_HTML
       : tab === "Insert" ? INSERT_HTML
+      : tab === "Page Layout" ? PAGE_LAYOUT_HTML
       : `<div class="placeholder">${tab} tab: coming in the next update</div>`;
     ribbon.innerHTML = html;
     updateRibbon();
@@ -832,6 +945,9 @@
       const k = b.dataset.cmd;
       const cur = k === "ha" ? (st.ha || "") : k === "va" ? (st.va || "bottom") : k === "nf" ? (st.nf || "general") : null;
       if (cur !== null) b.classList.toggle("on", cur === b.dataset.val);
+    });
+    document.querySelectorAll('[data-cmd="sheetOpt"]').forEach((b) => {
+      b.classList.toggle("on", !!sheetOpt[b.dataset.val]);
     });
     const ff = document.getElementById("fontFamily");
     if (ff) ff.value = st.font || DEFAULT_FONT;
@@ -879,6 +995,9 @@
         const cur = st.dec ?? (st.nf === "percent" ? 0 : 2);
         return applyStyle({ dec: clamp(cur + (cmd === "decUp" ? 1 : -1), 0, 10) });
       }
+      case "sheetOpt":
+        sheetOpt[val] = !sheetOpt[val];
+        return refresh();
       case "table": return formatAsTable();
       case "hyperlink": return insertHyperlink();
       case "autoSum": return autoSum();
