@@ -243,13 +243,6 @@
     }
     const dlg = showDialog({ title: 'Accessibility check', body });
   }
-  function animPaneDialog() {
-    const s = E.slide();
-    const label = (id) => { const sh = E.shape(id); if (!sh) return id; return sh.text ? sh.text.split('\n')[0].slice(0, 28) : sh.type; };
-    const names = { appear: 'Appear', fade: 'Fade', flyin: 'Fly In' }, starts = { onclick: 'On Click', withprev: 'With Previous', afterprev: 'After Previous' };
-    const rows = s.anims.map((a, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(label(a.shapeId)) + '</td><td>' + names[a.effect] + '</td><td>' + starts[a.start] + '</td></tr>').join('');
-    showDialog({ title: 'Animation Pane', body: rows ? '<table class="kbd-table" id="animPaneTable">' + rows + '</table>' : '<p>This slide has no animations. Select a shape and pick an effect on the Animations tab.</p>' });
-  }
   function zoomDialog() {
     const cur = E.zoom.mode === 'fit' ? 'fit' : String(E.zoomPercent());
     const opts = ['200', '150', '100', '75', '50', '25', 'fit'];
@@ -372,93 +365,317 @@
     }
   }
 
-  // ================= slide show =================
-  let show = null;
-  function playGroup(layer, group) {
+  // ================= animation effects =================
+  const isLineT = (t) => t === 'line' || t === 'arrow';
+  const boxTop = (s) => (isLineT(s.type) ? s.y - Math.max(14, s.h) / 2 : s.y);
+  const boxH = (s) => (isLineT(s.type) ? Math.max(14, s.h) : s.h);
+  const shapeLabel = (sh) => (!sh ? '?' : sh.text && sh.text.trim() ? sh.text.trim().split('\n')[0].slice(0, 26) : sh.type === 'table' ? 'Table' : sh.type === 'chart' ? 'Chart' : sh.type.charAt(0).toUpperCase() + sh.type.slice(1));
+  function effectSpec(a, sh, W, H, rot) {
+    const R = rot ? rot + ' ' : '', base = rot || 'none';
+    const off = (dir, far) => {
+      const f = far ? 1 : 0;
+      const dx = dir === 'left' ? (f ? -(sh.x + sh.w + 20) : -60) : dir === 'right' ? (f ? W - sh.x + 20 : 60) : 0;
+      const dy = dir === 'top' ? (f ? -(sh.y + sh.h + 20) : -60) : dir === 'bottom' ? (f ? H - sh.y + 20 : 60) : 0;
+      return [dx, dy];
+    };
+    const wipeFrom = { left: 'inset(0 100% 0 0)', right: 'inset(0 0 0 100%)', top: 'inset(0 0 100% 0)', bottom: 'inset(100% 0 0 0)' }[a.dir] || 'inset(0 100% 0 0)';
+    const full = 'inset(0 0 0 0)';
+    switch (a.effect) {
+      case 'appear': return { kf: [{ opacity: 0 }, { opacity: 1 }], dur: 1 };
+      case 'fade': return { kf: [{ opacity: 0 }, { opacity: 1 }] };
+      case 'flyin': { const o = off(a.dir, true); return { kf: [{ transform: 'translate(' + o[0] + 'px,' + o[1] + 'px) ' + rot }, { transform: base }] }; }
+      case 'wipe': return { kf: [{ clipPath: wipeFrom }, { clipPath: full }] };
+      case 'zoom': return { kf: [{ transform: R + 'scale(.1)', opacity: 0 }, { transform: R + 'scale(1)', opacity: 1 }] };
+      case 'float': { const o = off(a.dir, false); return { kf: [{ transform: 'translate(' + o[0] + 'px,' + o[1] + 'px) ' + rot, opacity: 0 }, { transform: base, opacity: 1 }] }; }
+      case 'pulse': return { kf: [{ transform: R + 'scale(1)' }, { transform: R + 'scale(1.15)' }, { transform: R + 'scale(1)' }] };
+      case 'spin': return { kf: [{ transform: R + 'rotate(0deg)' }, { transform: R + 'rotate(' + (a.amount || 360) + 'deg)' }] };
+      case 'growshrink': return { kf: [{ transform: R + 'scale(1)' }, { transform: R + 'scale(' + (a.amount || 1.5) + ')' }], fill: 'forwards' };
+      case 'teeter': return { kf: [0, -8, 8, -8, 8, 0].map((d) => ({ transform: R + 'rotate(' + d + 'deg)' })) };
+      case 'blink': return { kf: [1, 0, 1, 0, 1].map((o) => ({ opacity: o })) };
+      case 'disappear': return { kf: [{ opacity: 1 }, { opacity: 0 }], dur: 1 };
+      case 'fadeout': return { kf: [{ opacity: 1 }, { opacity: 0 }] };
+      case 'flyout': { const o = off(a.dir, true); return { kf: [{ transform: base }, { transform: 'translate(' + o[0] + 'px,' + o[1] + 'px) ' + rot }] }; }
+      case 'wipeout': return { kf: [{ clipPath: full }, { clipPath: { left: 'inset(0 0 0 100%)', right: 'inset(0 100% 0 0)', top: 'inset(100% 0 0 0)', bottom: 'inset(0 0 100% 0)' }[a.dir] || 'inset(0 0 0 100%)' }] };
+      case 'zoomout': return { kf: [{ transform: R + 'scale(1)', opacity: 1 }, { transform: R + 'scale(.1)', opacity: 0 }] };
+      case 'floatout': { const o = off(a.dir, false); return { kf: [{ transform: base, opacity: 1 }, { transform: 'translate(' + o[0] + 'px,' + o[1] + 'px) ' + rot, opacity: 0 }] }; }
+      default: return { kf: [{ opacity: 0 }, { opacity: 1 }] };
+    }
+  }
+  // plays one animation group (entrance shows, emphasis wiggles, exit hides) inside a rendered slide
+  function playGroup(layer, group, slide) {
+    const W = E.pres.W, H = E.pres.H;
     Q.groupTimeline(group).forEach((t) => {
-      const d = layer.querySelector('[data-sid="' + t.entry.shapeId + '"]'); if (!d) return;
-      d.style.visibility = 'visible'; delete d.dataset.hidden;
-      const rot = d.style.transform || '';
-      let kf; const a = t.entry;
-      if (a.effect === 'fade') kf = [{ opacity: 0 }, { opacity: 1 }];
-      else if (a.effect === 'flyin') {
-        const sh = E.pres.slides[show ? show.state.i : E.cur].shapes.find((x) => x.id === a.shapeId) || { x: 0, y: 0, w: 0, h: 0 };
-        const dx = a.dir === 'left' ? -(sh.x + sh.w + 20) : a.dir === 'right' ? E.pres.W - sh.x + 20 : 0;
-        const dy = a.dir === 'top' ? -(sh.y + sh.h + 20) : a.dir === 'bottom' ? E.pres.H - sh.y + 20 : 0;
-        kf = [{ transform: 'translate(' + dx + 'px,' + dy + 'px) ' + rot }, { transform: rot || 'none' }];
-      } else kf = [{ opacity: 0 }, { opacity: 1 }];
-      const dur = a.effect === 'appear' ? 1 : Math.max(1, t.dur * 1000);
-      if (d.animate) d.animate(kf, { duration: dur, delay: t.at * 1000, fill: 'backwards', easing: 'ease-out' });
+      const a = t.entry, d = layer.querySelector('[data-sid="' + a.shapeId + '"]'), sh = slide.shapes.find((x) => x.id === a.shapeId);
+      if (!d || !sh) return;
+      const cat = Q.animCategory(a.effect), spec = effectSpec(a, sh, W, H, d.style.transform || '');
+      if (cat === 'entrance') { d.style.visibility = 'visible'; delete d.dataset.hidden; }
+      const dur = Math.max(1, spec.dur != null ? spec.dur : t.dur * 1000), delay = t.at * 1000;
+      if (d.animate) d.animate(spec.kf, { duration: dur, delay, fill: spec.fill || (cat === 'entrance' ? 'backwards' : cat === 'exit' ? 'both' : 'none'), easing: 'ease-out' });
+      if (cat === 'exit') d._exitTimer = setTimeout(() => { d.style.visibility = 'hidden'; d.dataset.hidden = '1'; }, delay + dur + 20);
     });
   }
-  function startShow(from) {
+  function unplayGroup(layer, group) {
+    group.entries.forEach((a) => {
+      const d = layer.querySelector('[data-sid="' + a.shapeId + '"]'); if (!d) return;
+      const cat = Q.animCategory(a.effect); clearTimeout(d._exitTimer);
+      if (d.getAnimations) d.getAnimations().forEach((x) => x.cancel());
+      if (cat === 'entrance') { d.style.visibility = 'hidden'; d.dataset.hidden = '1'; } else if (cat === 'exit') { d.style.visibility = 'visible'; delete d.dataset.hidden; }
+    });
+  }
+
+  // ================= slide transitions =================
+  const VEC = (w, h) => ({ left: [-w, 0], right: [w, 0], top: [0, -h], bottom: [0, h] });
+  const WIPE_FROM = { left: 'inset(0 100% 0 0)', right: 'inset(0 0 0 100%)', top: 'inset(0 0 100% 0)', bottom: 'inset(100% 0 0 0)' };
+  const trPx = (v) => v[0] + 'px ' + v[1] + 'px';
+  // old/new layers are absolutely positioned elements; size = visible size in pixels. Returns the duration in ms (0 = instant)
+  function runTransition(oldL, newL, tr, size, oldSlide, newSlide) {
+    const type = (tr && tr.type) || 'none', dur = Math.max(0, ((tr && tr.dur) || 0) * 1000), dir = (tr && tr.dir) || 'left';
+    if (!oldL || !newL.animate || type === 'none' || type === 'cut' || dur < 20) { if (oldL) oldL.remove(); return 0; }
+    const v = VEC(size.w, size.h), o = { duration: dur, easing: 'ease-in-out', fill: 'both' };
+    const opp = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' };
+    if (type === 'fade') {
+      if (dir === 'black') {
+        oldL.animate([{ opacity: 1 }, { opacity: 0 }], { duration: dur / 2, fill: 'forwards' });
+        newL.animate([{ opacity: 0 }, { opacity: 1 }], { duration: dur / 2, delay: dur / 2, fill: 'both' });
+      } else newL.animate([{ opacity: 0 }, { opacity: 1 }], o);
+    } else if (type === 'push') {
+      const a = v[dir] || v.left, b = v[opp[dir]] || v.right;
+      newL.animate([{ translate: trPx(a) }, { translate: '0px 0px' }], o); oldL.animate([{ translate: '0px 0px' }, { translate: trPx(b) }], o);
+    } else if (type === 'cover') {
+      newL.style.zIndex = 2; oldL.style.zIndex = 1; newL.animate([{ translate: trPx(v[dir] || v.left) }, { translate: '0px 0px' }], o);
+    } else if (type === 'uncover') {
+      oldL.style.zIndex = 2; newL.style.zIndex = 1; oldL.animate([{ translate: '0px 0px' }, { translate: trPx(v[dir] || v.left) }], o);
+    } else if (type === 'wipe') {
+      newL.animate([{ clipPath: WIPE_FROM[dir] || WIPE_FROM.left }, { clipPath: 'inset(0 0 0 0)' }], o);
+    } else if (type === 'zoom') {
+      newL.animate([{ clipPath: 'inset(50% 50% 50% 50%)', opacity: 0.2 }, { clipPath: 'inset(0 0 0 0)', opacity: 1 }], o);
+    } else if (type === 'split') {
+      newL.animate([{ clipPath: dir === 'vertical' ? 'inset(50% 0 50% 0)' : 'inset(0 50% 0 50%)' }, { clipPath: 'inset(0 0 0 0)' }], o);
+    } else if (type === 'morph') {
+      runMorph(oldL, newL, oldSlide, newSlide, dur); return dur;
+    }
+    setTimeout(() => oldL.remove(), dur + 30);
+    return dur;
+  }
+  function matchShape(oldSlide, ns, used) {
+    if (!oldSlide) return null;
+    const free = (x) => !used.has(x.id);
+    return oldSlide.shapes.find((x) => free(x) && x.id === ns.id) ||
+      oldSlide.shapes.find((x) => free(x) && x.type === ns.type && ns.text && x.text === ns.text) ||
+      oldSlide.shapes.find((x) => free(x) && x.type === ns.type && ns.ph && x.ph === ns.ph) || null;
+  }
+  // Morph: shapes that exist on both slides glide from their old position/size to the new one; the rest fade in
+  function runMorph(oldL, newL, oldSlide, newSlide, dur) {
+    const used = new Set(), o = { duration: dur, easing: 'ease-in-out', fill: 'backwards' };
+    newL.animate([{ opacity: 0 }, { opacity: 1 }], { duration: dur * 0.3, fill: 'backwards' });
+    oldL.animate([{ opacity: 1 }, { opacity: 0 }], { duration: dur, fill: 'forwards' });
+    (newSlide ? newSlide.shapes : []).forEach((ns) => {
+      const d = newL.querySelector('[data-sid="' + ns.id + '"]'); if (!d) return;
+      const os = matchShape(oldSlide, ns, used);
+      if (os) {
+        used.add(os.id);
+        d.animate([{ left: os.x + 'px', top: boxTop(os) + 'px', width: os.w + 'px', height: boxH(os) + 'px', transform: 'rotate(' + (os.rot || 0) + 'deg)' },
+          { left: ns.x + 'px', top: boxTop(ns) + 'px', width: ns.w + 'px', height: boxH(ns) + 'px', transform: 'rotate(' + (ns.rot || 0) + 'deg)' }], o);
+      } else d.animate([{ opacity: 0 }, { opacity: 1 }], o);
+    });
+    setTimeout(() => oldL.remove(), dur + 30);
+  }
+  function previewTransition() {
+    const idx = E.cur, tr = E.slide().transition; if (tr.type === 'none') return;
+    const stage = $('stage'); if (!stage.querySelector('.sl-slide')) return;
+    const z = E.z(), pres = E.pres, size = { w: pres.W * z, h: pres.H * z };
+    const ov = el('div', 'tr-preview'); ov.style.cssText = 'position:absolute;inset:0;overflow:hidden;z-index:5;background:#000';
+    const mk = (slide) => { const w = el('div', 'pv-layer'); w.style.cssText = 'position:absolute;inset:0;overflow:hidden'; if (slide) { const sl = E.renderSlide(pres, slide, {}); sl.style.transform = 'scale(' + z + ')'; w.appendChild(sl); } else w.style.background = '#000'; return w; };
+    const oldSlide = idx > 0 ? pres.slides[idx - 1] : null, oldL = mk(oldSlide), newL = mk(pres.slides[idx]); newL.style.zIndex = 1;
+    ov.appendChild(oldL); ov.appendChild(newL); stage.appendChild(ov);
+    const ms = runTransition(oldL, newL, tr, size, oldSlide, pres.slides[idx]);
+    setTimeout(() => ov.remove(), Math.max(ms, 50) + 250);
+  }
+  function previewAnimations() {
+    const slide = E.slide(); const groups = Q.animGroups(slide); if (!groups.length) return;
+    E.select([]);
+    const sl = $('stage').querySelector('.sl-slide'); if (!sl) return;
+    const first = {}; slide.anims.forEach((a) => { if (!(a.shapeId in first)) first[a.shapeId] = a; });
+    Object.keys(first).forEach((id) => { if (Q.animCategory(first[id].effect) === 'entrance') { const d = sl.querySelector('[data-sid="' + id + '"]'); if (d) d.style.visibility = 'hidden'; } });
+    let delay = 300;
+    groups.forEach((g) => {
+      let end = 0; setTimeout(() => playGroup(sl, g, slide), delay);
+      Q.groupTimeline(g).forEach((t) => { end = Math.max(end, t.at + t.dur); });
+      delay += end * 1000 + 400;
+    });
+    setTimeout(() => E.renderCanvas(), delay + 200);
+    QUI.previewMs = delay + 200;
+  }
+
+  // ================= slide show (full screen), presenter view, audience window, rehearsal =================
+  let show = null;
+  const AUDIENCE = new URLSearchParams(location.search).has('audience');
+  if (AUDIENCE) window.__QUADRA_NOSAVE = true;
+  const fmtTime = (sec) => { sec = Math.max(0, Math.round(sec)); return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0'); };
+  const FILLERS = /\b(um+|uh+|er+m?|ah+|like|basically|actually|literally|you know)\b/gi;
+  function startShow(from, opts) {
+    opts = opts || {};
     if (E.showActive) return;
     E.stopEdit(); closeMenus();
-    const root = $('showRoot'); root.hidden = false; root.textContent = '';
+    const root = $('showRoot'); root.hidden = false; root.textContent = ''; root.classList.toggle('presenter', !!opts.presenter);
     E.showActive = true;
-    const state = new Q.ShowState(E.pres, from);
-    show = { state, layer: null, usedFs: false, endShown: false };
-    const scale = () => Math.min(window.innerWidth / E.pres.W, window.innerHeight / E.pres.H);
-    const place = (layer) => { const s = scale(); layer.style.width = E.pres.W + 'px'; layer.style.height = E.pres.H + 'px'; layer.style.transform = 'translate(' + (-E.pres.W * s / 2) + 'px,' + (-E.pres.H * s / 2) + 'px) scale(' + s + ')'; };
-    function mount(fade) {
-      const layer = el('div', 'show-layer'); layer.dataset.slideIndex = state.i;
-      layer.appendChild(E.renderSlide(E.pres, E.pres.slides[state.i], { hidden: new Set(state.hiddenIds().concat(state.auto.map((a) => a.shapeId))) }));
-      place(layer); root.appendChild(layer);
-      const old = show.layer; show.layer = layer;
-      if (fade > 0 && layer.animate) {
-        layer.animate([{ opacity: 0 }, { opacity: 1 }], { duration: fade, easing: 'ease-in-out' });
-        setTimeout(() => { if (old) old.remove(); }, fade + 20);
-      } else if (old) old.remove();
-      if (state.auto.length) playGroup(layer, { entries: state.auto });
+    const pres = E.pres, state = new Q.ShowState(pres, from, opts.order);
+    const S = show = { state, layer: null, usedFs: false, endShown: false, opts, t0: Date.now(), paused: false, pausedAt: 0, pausedTotal: 0, advTimer: 0, ticker: 0, noteSize: 22, ch: null, aud: null };
+    let host = root;
+    if (opts.presenter) {
+      root.innerHTML = '<div class="pr-grid"><div class="pr-top"><span class="pr-time" id="prTime">00:00</span><span class="pr-count" id="prCount"></span><span class="pr-spacer"></span><button class="pr-btn" data-pr="pause">Pause</button><button class="pr-btn" data-pr="reset">Reset timer</button></div>' +
+        '<div class="pr-main" id="prMain"></div><div class="pr-side"><div class="pr-label">Next slide</div><div class="pr-next" id="prNext"></div><div class="pr-label">Notes <span class="pr-notes-size"><button class="pr-btn sm" data-pr="notesDown" aria-label="Smaller text">A−</button><button class="pr-btn sm" data-pr="notesUp" aria-label="Larger text">A+</button></span></div><div class="pr-notes" id="prNotes"></div></div>' +
+        '<div class="pr-bar"><button class="pr-btn" data-pr="prev">Previous</button><button class="pr-btn" data-pr="next">Next</button><button class="pr-btn" data-pr="audience">Audience window</button><span class="pr-spacer"></span><button class="pr-btn end" data-pr="end">End show</button></div></div>';
+      host = $('prMain');
     }
-    function clearEnd() { const e = root.querySelector('.show-end'); if (e) e.remove(); show.endShown = false; }
-    function next() {
-      if (show.endShown) { stopShow(); return; }
-      const r = state.next();
-      if (r.kind === 'anim') playGroup(show.layer, r.group);
-      else if (r.kind === 'slide') { const t = r.transition; mount(t && ['fade', 'push', 'wipe'].indexOf(t.type) >= 0 ? t.dur * 1000 : 0); }
-      else if (r.kind === 'end') { const e = el('div', 'show-end'); e.textContent = 'End of slide show, click to exit.'; root.appendChild(e); show.endShown = true; }
+    S.host = host;
+    if (opts.rehearse) {
+      S.rec = { slideTimes: {}, cur: Date.now(), words: 0, fillers: {}, speech: false };
+      const hud = el('div', 're-hud'); hud.id = 'reHud'; hud.innerHTML = '<span id="reTime">00:00</span><span id="reSlide">slide 00:00</span><span id="reWpm"></span><button class="pr-btn sm" data-re="stop">Stop</button>'; root.appendChild(hud);
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SR) {
+        try {
+          const r = new SR(); S.rec.sr = r; r.lang = dictLang; r.continuous = true; r.interimResults = false; S.rec.speech = true;
+          r.onresult = (ev) => {
+            for (let k = ev.resultIndex; k < ev.results.length; k++) {
+              if (!ev.results[k].isFinal) continue; const t = ev.results[k][0].transcript || '';
+              S.rec.words += (t.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
+              (t.match(FILLERS) || []).forEach((f) => { const key = f.toLowerCase(); S.rec.fillers[key] = (S.rec.fillers[key] || 0) + 1; });
+            }
+          };
+          r.onend = () => { if (show === S && S.rec.sr === r) { try { r.start(); } catch (e) { /* ignore */ } } };
+          r.onerror = () => { /* keep timing even if speech fails */ };
+          r.start();
+        } catch (e) { S.rec.speech = false; }
+      }
+    }
+    const area = () => (opts.presenter ? { w: host.clientWidth || 640, h: host.clientHeight || 360 } : { w: window.innerWidth, h: window.innerHeight });
+    const place = (layer) => { const a = area(), s = Math.min(a.w / pres.W, a.h / pres.H); layer.style.width = pres.W + 'px'; layer.style.height = pres.H + 'px'; layer.style.transform = 'translate(' + (-pres.W * s / 2) + 'px,' + (-pres.H * s / 2) + 'px) scale(' + s + ')'; };
+    const elapsed = () => ((S.paused ? S.pausedAt : Date.now()) - S.t0 - S.pausedTotal) / 1000;
+    const slideObj = () => pres.slides[state.i];
+    const hiddenNow = () => new Set(state.hiddenIds());
+    function broadcast(full) {
+      if (!S.ch || show !== S) return;
+      const msg = { type: full ? 'full' : 'nav', i: state.i, hidden: Array.from(hiddenNow()) };
+      if (full) msg.doc = pres.toJSON();
+      S.ch.postMessage(msg);
+    }
+    function updatePanels() {
+      if (!opts.presenter) return;
+      $('prCount').textContent = 'Slide ' + (state.pos + 1) + ' of ' + state.order.length;
+      const n = $('prNotes'); n.textContent = slideObj().notes.trim() || 'No notes for this slide.'; n.classList.toggle('empty', !slideObj().notes.trim()); n.style.fontSize = S.noteSize + 'px';
+      const nx = $('prNext'); nx.textContent = '';
+      if (state.isLast()) { nx.innerHTML = '<div class="pr-end">End of slide show</div>'; }
+      else { const ns = pres.slides[state.order[state.pos + 1]], w = 300, box = el('div'); box.style.cssText = 'position:relative;width:' + w + 'px;height:' + Math.round(w * pres.H / pres.W) + 'px;overflow:hidden'; const sl = E.renderSlide(pres, ns, {}); sl.style.transform = 'scale(' + (w / pres.W) + ')'; box.appendChild(sl); nx.appendChild(box); }
+    }
+    function tickHud() {
+      if (opts.presenter) $('prTime').textContent = fmtTime(elapsed());
+      if (opts.rehearse) {
+        const r = S.rec, now = Date.now(), total = (now - S.t0) / 1000;
+        $('reTime').textContent = 'total ' + fmtTime(total); $('reSlide').textContent = 'slide ' + fmtTime((now - r.cur) / 1000 + (r.slideTimes[state.i] || 0));
+        $('reWpm').textContent = r.speech ? (r.words && total > 5 ? Math.round(r.words / (total / 60)) + ' wpm' : 'listening…') : 'no speech analysis';
+      }
+    }
+    S.ticker = setInterval(tickHud, 500);
+    function recordSlideTime(idx) { if (!S.rec) return; const now = Date.now(); S.rec.slideTimes[idx] = (S.rec.slideTimes[idx] || 0) + (now - S.rec.cur) / 1000; S.rec.cur = now; }
+    function scheduleAdvance() {
+      clearTimeout(S.advTimer);
+      const adv = slideObj().advance;
+      if (pres.show.useTimings && adv && adv.after > 0 && !opts.rehearse && !S.endShown) S.advTimer = setTimeout(() => { const gs = state.groups(); state.g = gs.length; state.auto = []; next(true); }, adv.after * 1000);
+    }
+    function mount(tr, oldIdx) {
+      const layer = el('div', 'show-layer'); layer.dataset.slideIndex = state.i;
+      const slide = slideObj();
+      layer.appendChild(E.renderSlide(pres, slide, { hidden: hiddenNow() }));
+      place(layer); host.appendChild(layer);
+      const old = S.layer; S.layer = layer;
+      if (old && tr) runTransition(old, layer, tr, area(), pres.slides[oldIdx], slide); else if (old) old.remove();
+      if (state.auto.length) { playGroup(layer, { entries: state.auto }, slide); state.autoDone(); }
+      updatePanels(); broadcast(false); scheduleAdvance();
+    }
+    function clearEnd() { const e = root.querySelector('.show-end'); if (e) e.remove(); S.endShown = false; }
+    function next(auto) {
+      if (S.endShown) { stopShow(); return; }
+      const oldIdx = state.i, r = state.next();
+      if (r.kind === 'anim') { playGroup(S.layer, r.group, slideObj()); updatePanels(); broadcast(false); }
+      else if (r.kind === 'slide') { recordSlideTime(oldIdx); mount(r.transition, oldIdx); }
+      else if (r.kind === 'end') {
+        if (pres.show.loop && !opts.rehearse) { recordSlideTime(oldIdx); state.restart(); mount({ type: 'fade', dur: 0.4 }, oldIdx); }
+        else { const e = el('div', 'show-end'); e.textContent = 'End of slide show, click to exit.'; root.appendChild(e); S.endShown = true; clearTimeout(S.advTimer); }
+      }
     }
     function prev() {
-      if (show.endShown) { clearEnd(); return; }
-      const r = state.prev();
-      if (r.kind === 'unanim') r.group.entries.forEach((a) => { const d = show.layer.querySelector('[data-sid="' + a.shapeId + '"]'); if (d) { d.style.visibility = 'hidden'; d.dataset.hidden = '1'; } });
-      else if (r.kind === 'slide') mount(0);
+      if (S.endShown) { clearEnd(); scheduleAdvance(); return; }
+      const oldIdx = state.i, r = state.prev();
+      if (r.kind === 'unanim') { unplayGroup(S.layer, r.group); updatePanels(); broadcast(false); }
+      else if (r.kind === 'slide') { recordSlideTime(oldIdx); mount(null, oldIdx); }
     }
+    S.next = next; S.prev = prev;
     function onKey(ev) {
       const k = ev.key;
       if (k === 'Escape') stopShow();
       else if (['ArrowRight', 'ArrowDown', ' ', 'Enter', 'PageDown', 'n', 'N'].indexOf(k) >= 0) next();
       else if (['ArrowLeft', 'ArrowUp', 'Backspace', 'PageUp', 'p', 'P'].indexOf(k) >= 0) prev();
-      else if (k === 'Home') { clearEnd(); state.i = 0; state.g = 0; state._enter(false); mount(0); }
-      else if (k === 'End') { clearEnd(); state.i = E.pres.slides.length - 1; state._enter(true); mount(0); }
+      else if (k === 'Home') { clearEnd(); const o = state.i; state.restart(); mount(null, o); }
+      else if (k === 'End') { clearEnd(); const o = state.i; state.pos = state.order.length - 1; state.i = state.order[state.pos]; state._enter(true); mount(null, o); }
       else return;
       ev.preventDefault(); ev.stopPropagation();
     }
-    show.onKey = onKey; show.onClick = (ev) => {
+    S.onKey = onKey;
+    S.onClick = (ev) => {
+      const pr = ev.target.closest('[data-pr]'), re = ev.target.closest('[data-re]');
+      if (re) { stopShow(); return; }
+      if (pr) {
+        const a = pr.dataset.pr;
+        if (a === 'prev') prev(); else if (a === 'next') next(); else if (a === 'end') stopShow();
+        else if (a === 'pause') { if (S.paused) { S.pausedTotal += Date.now() - S.pausedAt; S.paused = false; pr.textContent = 'Pause'; } else { S.paused = true; S.pausedAt = Date.now(); pr.textContent = 'Resume'; } tickHud(); }
+        else if (a === 'reset') { S.t0 = Date.now(); S.pausedTotal = 0; S.pausedAt = Date.now(); tickHud(); }
+        else if (a === 'notesUp' || a === 'notesDown') { S.noteSize = Q.clamp(S.noteSize + (a === 'notesUp' ? 2 : -2), 12, 48); updatePanels(); }
+        else if (a === 'audience') openAudience();
+        return;
+      }
+      if (opts.presenter && !ev.target.closest('#prMain')) return;
       if (ev.target.closest('video,audio')) return;
       const l = ev.target.closest('[data-link]');
       if (l) {
         if (l.dataset.link === 'url') { window.open(l.dataset.linkTarget, '_blank', 'noopener,noreferrer'); return; }
-        if (l.dataset.link === 'slide') { clearEnd(); state.i = Number(l.dataset.linkTarget); state.g = 0; state._enter(false); mount(0); return; }
+        if (l.dataset.link === 'slide') { clearEnd(); const o = state.i; if (!state.goTo(Number(l.dataset.linkTarget))) state.i = Number(l.dataset.linkTarget); mount(null, o); return; }
       }
+      if (slideObj().advance && slideObj().advance.click === false) return; // this slide advances only by its timing
       next();
-    }; show.onCtx = (ev) => { ev.preventDefault(); prev(); };
-    show.onResize = () => { if (show.layer) place(show.layer); };
-    show.onFs = () => { if (show.usedFs && !document.fullscreenElement) stopShow(); };
-    document.addEventListener('keydown', onKey, true); root.addEventListener('click', show.onClick); root.addEventListener('contextmenu', show.onCtx);
-    window.addEventListener('resize', show.onResize); document.addEventListener('fullscreenchange', show.onFs);
-    mount(0);
-    if (root.requestFullscreen) root.requestFullscreen().then(() => { if (show) show.usedFs = document.fullscreenElement === root; else if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {}); /* show was closed before fullscreen finished */ }).catch(() => { /* fullscreen not allowed: stay in the page */ });
+    };
+    S.onCtx = (ev) => { ev.preventDefault(); prev(); };
+    S.onResize = () => { if (S.layer) place(S.layer); };
+    S.onFs = () => { if (S.usedFs && !document.fullscreenElement) stopShow(); };
+    function openAudience() {
+      if (!window.BroadcastChannel) { showDialog({ title: 'Audience window', body: '<p>This browser cannot link two windows.</p>' }); return; }
+      if (!S.ch) { S.ch = new BroadcastChannel('quadra-show'); S.ch.onmessage = (m) => { if (m.data && m.data.type === 'hello') broadcast(true); }; }
+      S.aud = window.open(location.href.split('?')[0].split('#')[0] + '?audience=1', 'quadra-audience', 'popup=yes,width=960,height=540');
+      setTimeout(() => broadcast(true), 600);
+    }
+    S.openAudience = openAudience;
+    document.addEventListener('keydown', onKey, true); root.addEventListener('click', S.onClick); root.addEventListener('contextmenu', S.onCtx);
+    window.addEventListener('resize', S.onResize); document.addEventListener('fullscreenchange', S.onFs);
+    mount(null, state.i); tickHud();
+    if (!opts.presenter && root.requestFullscreen) root.requestFullscreen().then(() => { if (show) show.usedFs = document.fullscreenElement === root; else if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {}); }).catch(() => { /* fullscreen not allowed: stay in the page */ });
   }
   function stopShow() {
     if (!show) return;
     const root = $('showRoot'), s = show; show = null;
+    clearTimeout(s.advTimer); clearInterval(s.ticker);
     document.removeEventListener('keydown', s.onKey, true); root.removeEventListener('click', s.onClick); root.removeEventListener('contextmenu', s.onCtx);
     window.removeEventListener('resize', s.onResize); document.removeEventListener('fullscreenchange', s.onFs);
-    root.hidden = true; root.textContent = ''; E.showActive = false;
+    if (s.ch) { const ch = s.ch; s.ch = null; ch.postMessage({ type: 'close' }); ch.close(); }
+    let rec = null;
+    if (s.rec) {
+      const now = Date.now(); s.rec.slideTimes[s.state.i] = (s.rec.slideTimes[s.state.i] || 0) + (now - s.rec.cur) / 1000;
+      if (s.rec.sr) { const r = s.rec.sr; s.rec.sr = null; try { r.onend = null; r.stop(); } catch (e) { /* ignore */ } }
+      rec = s.rec; rec.total = (now - s.t0) / 1000;
+    }
+    root.hidden = true; root.textContent = ''; root.classList.remove('presenter'); E.showActive = false;
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     E.selectSlide(s.state.i, true);
+    if (rec) rehearsalReport(rec);
   }
   QUI.startShow = startShow; QUI.stopShow = stopShow; QUI.showState = () => (show ? show.state : null);
   document.addEventListener('keydown', (ev) => {
@@ -466,24 +683,146 @@
     if (ev.key === 'F5') { ev.preventDefault(); startShow(ev.shiftKey ? E.cur : 0); }
   });
 
-  // transition / animation previews on the canvas
-  function previewTransition() {
-    const t = E.slide().transition; if (t.type === 'none' || t.type === 'cut') return;
-    const s = $('stage'); if (s.animate) s.animate([{ opacity: 0 }, { opacity: 1 }], { duration: t.dur * 1000, easing: 'ease-in-out' });
+  function rehearsalReport(rec) {
+    const visited = Object.keys(rec.slideTimes).map(Number).filter((i) => E.pres.slides[i]).sort((a, b) => a - b);
+    const total = rec.total || visited.reduce((a, i) => a + rec.slideTimes[i], 0);
+    const wpm = rec.speech && rec.words && total > 0 ? Math.round(rec.words / (total / 60)) : null;
+    const fillerTotal = Object.keys(rec.fillers).reduce((a, k) => a + rec.fillers[k], 0);
+    const tips = [];
+    if (wpm == null) tips.push(rec.speech ? 'No speech was recognised. Check the microphone and speak while rehearsing.' : 'Speech analysis needs Chrome or Edge with a microphone. Timing was still recorded.');
+    else if (wpm > 170) tips.push('You spoke quickly (' + wpm + ' words per minute). Aim for about 120–160.');
+    else if (wpm < 100) tips.push('Your pace was slow (' + wpm + ' words per minute). Aim for about 120–160.');
+    else tips.push('Good pace: ' + wpm + ' words per minute.');
+    if (fillerTotal) tips.push('Filler words: ' + Object.keys(rec.fillers).map((k) => '“' + k + '” ×' + rec.fillers[k]).join(', ') + '.');
+    else if (wpm != null) tips.push('No filler words detected.');
+    const longest = visited.slice().sort((a, b) => rec.slideTimes[b] - rec.slideTimes[a])[0];
+    if (longest != null && visited.length > 1 && rec.slideTimes[longest] > total * 0.5) tips.push('Slide ' + (longest + 1) + ' took more than half of the time.');
+    const body = el('div'); body.id = 'rehearseReport';
+    body.innerHTML = '<p><b>Total time:</b> <span id="rpTotal">' + fmtTime(total) + '</span> · <b>Slides:</b> ' + visited.length + (wpm != null ? ' · <b>Pace:</b> <span id="rpWpm">' + wpm + '</span> wpm' : '') + '</p>' +
+      '<table class="kbd-table" id="rpTable">' + visited.map((i) => '<tr data-slide="' + i + '"><td>Slide ' + (i + 1) + '</td><td>' + fmtTime(rec.slideTimes[i]) + '</td></tr>').join('') + '</table><ul class="issues" id="rpTips">' + tips.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>';
+    showDialog({ title: 'Rehearsal report', wide: true, body, buttons: [{ label: 'Close' }, { label: 'Save timings', primary: true, act: 'saveTimings', run: () => {
+      E.mutate(() => { visited.forEach((i) => E.pres.setAdvance(i, { after: Math.max(1, Math.round(rec.slideTimes[i])) })); E.pres.setShowOptions({ useTimings: true }); }, 'meta');
+    } }] });
   }
-  function previewAnimations() {
-    const slide = E.slide(); const groups = Q.animGroups(slide); if (!groups.length) return;
-    E.select([]);
-    const sl = $('stage').querySelector('.sl-slide'); if (!sl) return;
-    slide.anims.forEach((a) => { const d = sl.querySelector('[data-sid="' + a.shapeId + '"]'); if (d) d.style.visibility = 'hidden'; });
-    let delay = 300;
-    groups.forEach((g) => {
-      const tl = Q.groupTimeline(g); let end = 0;
-      setTimeout(() => playGroup(sl, g), delay);
-      tl.forEach((t) => { end = Math.max(end, t.at + t.dur); });
-      delay += end * 1000 + 400;
+
+  // audience window (opened by the presenter view)
+  function startAudience() {
+    document.body.classList.add('audience'); E.showActive = true;
+    const root = $('showRoot'); root.hidden = false; root.textContent = '';
+    let pres = null, layer = null, last = null;
+    const render = () => {
+      if (!pres || !last) return;
+      const slide = pres.slides[last.i]; if (!slide) return;
+      if (layer) layer.remove();
+      layer = el('div', 'show-layer'); layer.dataset.slideIndex = last.i;
+      layer.appendChild(E.renderSlide(pres, slide, { hidden: new Set(last.hidden) }));
+      const s = Math.min(window.innerWidth / pres.W, window.innerHeight / pres.H);
+      layer.style.width = pres.W + 'px'; layer.style.height = pres.H + 'px'; layer.style.transform = 'translate(' + (-pres.W * s / 2) + 'px,' + (-pres.H * s / 2) + 'px) scale(' + s + ')';
+      root.appendChild(layer);
+    };
+    const ch = new BroadcastChannel('quadra-show');
+    ch.onmessage = (m) => {
+      const d = m.data || {};
+      if (d.type === 'full') { pres = Q.Presentation.fromJSON(d.doc); last = d; render(); }
+      else if (d.type === 'nav') { last = d; render(); }
+      else if (d.type === 'close') window.close();
+    };
+    const hello = setInterval(() => { if (pres) clearInterval(hello); else ch.postMessage({ type: 'hello' }); }, 400); ch.postMessage({ type: 'hello' });
+    window.addEventListener('resize', render);
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') window.close(); });
+    root.innerHTML = '<div class="show-end">Waiting for the presenter…</div>';
+  }
+
+  // animation pane (live list of the slide's animations)
+  let selAnimId = null;
+  const selAnim = () => {
+    if (!E.sel.length) return null; const list = E.pres.getAnims(E.cur, E.sel[0]); if (!list.length) return null;
+    return list.find((a) => a.id === selAnimId) || list[0];
+  };
+  const effName = (e) => (Q.ANIM_INFO[e] ? Q.ANIM_INFO[e].name : e);
+  function effectMenuItems(onPick) {
+    const out = [];
+    [['entrance', 'Entrance'], ['emphasis', 'Emphasis'], ['exit', 'Exit']].forEach((c) => {
+      out.push({ head: c[1] });
+      Object.keys(Q.ANIM_INFO).filter((k) => Q.ANIM_INFO[k].cat === c[0]).forEach((k) => out.push({ label: Q.ANIM_INFO[k].name, id: 'eff-' + k, icon: c[0] === 'entrance' ? 'an-appear' : c[0] === 'emphasis' ? 'an-fade' : 'an-none', run: () => onPick(k) }));
     });
-    setTimeout(() => E.renderCanvas(), delay + 200);
+    return out;
+  }
+  function animPaneDialog() {
+    const body = el('div'); body.id = 'animPane';
+    const draw = () => {
+      const s = E.slide();
+      if (!s.anims.length) { body.innerHTML = '<p id="animPaneEmpty">This slide has no animations. Select a shape and pick an effect on the Animations tab.</p>'; return; }
+      const starts = { onclick: 'On Click', withprev: 'With Previous', afterprev: 'After Previous' };
+      body.innerHTML = '<table class="kbd-table" id="animPaneTable">' + s.anims.map((a, k) => '<tr data-anim="' + a.id + '"' + (selAnim() && selAnim().id === a.id ? ' class="sel"' : '') + '><td>' + (k + 1) + '</td><td>' + esc(shapeLabel(E.shape(a.shapeId))) + '</td><td>' + esc(effName(a.effect)) + '<br><small>' + Q.animCategory(a.effect) + '</small></td><td><select data-start="' + a.id + '">' + Object.keys(starts).map((v) => '<option value="' + v + '"' + (a.start === v ? ' selected' : '') + '>' + starts[v] + '</option>').join('') + '</select></td><td style="white-space:nowrap"><button class="btn" data-up="' + a.id + '" aria-label="Move up" style="min-width:34px;padding:0">↑</button> <button class="btn" data-down="' + a.id + '" aria-label="Move down" style="min-width:34px;padding:0">↓</button> <button class="btn" data-rm="' + a.id + '" aria-label="Remove" style="min-width:34px;padding:0">✕</button></td></tr>').join('') + '</table>';
+    };
+    draw();
+    body.addEventListener('click', (ev) => {
+      const t = ev.target;
+      const act = (fn) => { fn(); draw(); };
+      if (t.closest('[data-up]')) act(() => E.mutate(() => E.pres.moveAnim(E.cur, t.closest('[data-up]').dataset.up, -1), 'meta'));
+      else if (t.closest('[data-down]')) act(() => E.mutate(() => E.pres.moveAnim(E.cur, t.closest('[data-down]').dataset.down, 1), 'meta'));
+      else if (t.closest('[data-rm]')) act(() => E.mutate(() => E.pres.removeAnim(E.cur, t.closest('[data-rm]').dataset.rm), 'meta'));
+      else if (t.tagName !== 'SELECT' && t.closest('[data-anim]')) { const a = E.slide().anims.find((x) => x.id === t.closest('[data-anim]').dataset.anim); if (a) { selAnimId = a.id; E.select([a.shapeId]); draw(); } }
+    });
+    body.addEventListener('change', (ev) => { const s = ev.target.closest('[data-start]'); if (s) { E.mutate(() => E.pres.updateAnim(E.cur, s.dataset.start, { start: s.value }), 'meta'); draw(); } });
+    const dlg = showDialog({ title: 'Animation Pane', wide: true, body, buttons: [{ label: 'Play', act: 'animPlay', run: () => { dlg.close(); previewAnimations(); return false; } }, { label: 'Close', primary: true }] });
+  }
+
+  // custom shows
+  function customMenu(b) {
+    const items = E.pres.customShows.map((c) => ({ label: c.name, id: 'cs-play-' + c.id, icon: 'play', run: () => startShow(0, { order: E.pres.customOrder(c.id) }) }));
+    if (items.length) items.push({ sep: true });
+    items.push({ label: 'Custom Shows…', id: 'cs-manage', run: customManager });
+    openMenu(b, items);
+  }
+  function customManager() {
+    const body = el('div');
+    const draw = () => {
+      const cs = E.pres.customShows;
+      body.innerHTML = (cs.length ? '<table class="kbd-table" id="csTable">' + cs.map((c) => '<tr data-cs="' + c.id + '"><td>' + esc(c.name) + '</td><td>' + E.pres.customOrder(c.id).length + ' slides</td><td style="white-space:nowrap"><button class="btn" data-cs-show="' + c.id + '">Show</button> <button class="btn" data-cs-edit="' + c.id + '">Edit</button> <button class="btn" data-cs-del="' + c.id + '">Delete</button></td></tr>').join('') + '</table>' : '<p id="csEmpty">No custom shows yet. A custom show plays only the slides you choose, in the order you choose.</p>');
+    };
+    draw();
+    body.addEventListener('click', (ev) => {
+      const sh = ev.target.closest('[data-cs-show]'), ed = ev.target.closest('[data-cs-edit]'), de = ev.target.closest('[data-cs-del]');
+      if (sh) { const id = sh.dataset.csShow; dlg.close(); startShow(0, { order: E.pres.customOrder(id) }); }
+      else if (ed) { dlg.close(); customEditor(ed.dataset.csEdit); }
+      else if (de) { E.mutate(() => E.pres.removeCustomShow(de.dataset.csDel), 'meta'); draw(); }
+    });
+    const dlg = showDialog({ title: 'Custom Shows', wide: true, body, buttons: [{ label: 'New…', act: 'csNew', run: () => { customEditor(null); } }, { label: 'Close', primary: true }] });
+  }
+  function customEditor(id) {
+    const ex = id ? E.pres.customShows.find((c) => c.id === id) : null;
+    const all = E.pres.slides.map((s) => s.id);
+    let list = ex ? ex.slides.filter((x) => all.indexOf(x) >= 0).concat(all.filter((x) => ex.slides.indexOf(x) < 0)) : all.slice();
+    const chosen = new Set(ex ? ex.slides : all);
+    const body = el('div');
+    const title = (sid) => { const k = E.pres.slides.findIndex((s) => s.id === sid), sl = E.pres.slides[k], t = sl.shapes.find((x) => x.ph === 'title'); return (k + 1) + '. ' + ((t && t.text.trim()) || '(no title)'); };
+    const draw = () => {
+      body.innerHTML = '<label class="row">Name <input type="text" id="csName" maxlength="60" value="' + esc(ex ? ex.name : '') + '"></label><div id="csList" style="max-height:260px;overflow:auto">' + list.map((sid, k) => '<div class="row" data-sid="' + sid + '" style="display:flex;gap:6px;align-items:center;margin:3px 0"><input type="checkbox" data-pick="' + sid + '"' + (chosen.has(sid) ? ' checked' : '') + '><span style="flex:1">' + esc(title(sid)) + '</span><button class="btn" data-mv="up" data-i="' + k + '" style="min-width:32px;padding:0" aria-label="Move up">↑</button><button class="btn" data-mv="down" data-i="' + k + '" style="min-width:32px;padding:0" aria-label="Move down">↓</button></div>').join('') + '</div><p id="csErr" style="color:var(--ic-red)"></p>';
+    };
+    draw();
+    body.addEventListener('change', (ev) => { const p = ev.target.closest('[data-pick]'); if (p) { if (p.checked) chosen.add(p.dataset.pick); else chosen.delete(p.dataset.pick); } });
+    body.addEventListener('click', (ev) => {
+      const m = ev.target.closest('[data-mv]'); if (!m) return;
+      const name = body.querySelector('#csName').value; const k = Number(m.dataset.i), to = m.dataset.mv === 'up' ? k - 1 : k + 1;
+      if (to < 0 || to >= list.length) return; const t = list[k]; list[k] = list[to]; list[to] = t; draw(); body.querySelector('#csName').value = name;
+    });
+    showDialog({ title: ex ? 'Edit custom show' : 'New custom show', wide: true, body, buttons: [{ label: 'Cancel' }, { label: 'OK', primary: true, act: 'csOk', run: () => {
+      const name = body.querySelector('#csName').value.trim(), ids = list.filter((s) => chosen.has(s));
+      if (!name || !ids.length) { body.querySelector('#csErr').textContent = 'Enter a name and choose at least one slide.'; return false; }
+      E.mutate(() => { if (ex) E.pres.updateCustomShow(ex.id, name, ids); else E.pres.addCustomShow(name, ids); }, 'meta');
+    } }] });
+  }
+  function coachMenu(b) {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    openMenu(b, [
+      { label: 'Start rehearsing', icon: 'coach', id: 'coach-start', run: () => startShow(0, { rehearse: true }) },
+      { label: 'Rehearse from current slide', icon: 'fromcurrent', id: 'coach-current', run: () => startShow(E.cur, { rehearse: true }) },
+      { sep: true },
+      { label: 'Language', icon: 'dictate', submenu: [['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['en-IN', 'English (India)'], ['hi-IN', 'Hindi']].map((l) => ({ label: l[1], id: 'coach-' + l[0], check: dictLang === l[0] ? undefined : false, run: () => { dictLang = l[0]; } })) },
+      { label: SR ? 'Speech analysis available' : 'Speech analysis unavailable in this browser', disabled: true },
+    ]);
   }
 
   // ================= documents library, versions, share =================
@@ -824,7 +1163,6 @@
   const hasSel = () => E.sel.length > 0;
   const hasText = () => E.textShapes().length > 0;
   const style = () => E.getStyle();
-  const selAnim = () => (E.sel.length ? E.pres.getAnim(E.cur, E.sel[0]) : null);
   const na = (name) => ({ run: () => notAvailable(name) });
   const dis = () => ({ disabled: true, run: () => {} });
   const layoutItems = (fn) => Q.LAYOUTS.map((l) => ({ label: l.name, check: E.slide().layout === l.id ? undefined : false, run: () => fn(l.id) }));
@@ -903,26 +1241,63 @@
   // transitions
   def('preview', { run: previewTransition });
   Q.TRANSITIONS.forEach((t) => def('tr:' + t, { run: () => E.mutate(() => E.pres.setTransition(E.cur, { type: t }), 'meta'), pressed: () => E.slide().transition.type === t }));
-  def('tr:exist', dis()); def('tr:more', na('More transitions'));
-  def('trOptions', { run: (b) => openMenu(b, ['left', 'right', 'top', 'bottom'].map((d) => ({ label: 'From ' + d[0].toUpperCase() + d.slice(1), check: E.slide().transition.dir === d ? undefined : false, run: () => E.mutate(() => E.pres.setTransition(E.cur, { dir: d }), 'meta') }))), enabled: () => ['push', 'wipe'].indexOf(E.slide().transition.type) >= 0 });
-  def('trDur', { change: (v) => E.mutate(() => E.pres.setTransition(E.cur, { dur: Number(v) }), 'meta'), enabled: () => E.slide().transition.type !== 'none', value: () => E.slide().transition.dur.toFixed(2) });
+  const capw = (x) => x.charAt(0).toUpperCase() + x.slice(1);
+  def('tr:exist', { run: (b) => {
+    const count = {}; E.pres.slides.forEach((s) => { if (s.transition.type !== 'none') count[s.transition.type] = (count[s.transition.type] || 0) + 1; });
+    const keys = Object.keys(count);
+    openMenu(b, keys.length ? keys.map((k) => ({ label: Q.TRANSITION_NAMES[k] + ' (' + count[k] + ' slide' + (count[k] > 1 ? 's' : '') + ')', id: 'trx-' + k, icon: 'tr-' + (['none', 'cut', 'fade', 'push', 'wipe'].indexOf(k) >= 0 ? k : 'more'), run: () => E.mutate(() => E.pres.setTransition(E.cur, { type: k }), 'meta') })) : [{ label: 'No transitions in this presentation', disabled: true }]);
+  } });
+  def('tr:more', { run: (b) => openMenu(b, ['cover', 'uncover', 'zoom', 'split'].map((t) => ({ label: Q.TRANSITION_NAMES[t], id: 'trm-' + t, check: E.slide().transition.type === t ? undefined : false, run: () => E.mutate(() => E.pres.setTransition(E.cur, { type: t }), 'meta') }))) });
+  function trOptionItems() {
+    const t = E.slide().transition, set = (d) => () => E.mutate(() => E.pres.setTransition(E.cur, { dir: d }), 'meta');
+    if (['push', 'wipe', 'cover', 'uncover'].indexOf(t.type) >= 0) return ['left', 'right', 'top', 'bottom'].map((d) => ({ label: 'From ' + capw(d), id: 'tro-' + d, check: t.dir === d ? undefined : false, run: set(d) }));
+    if (t.type === 'split') return [['horizontal', 'Horizontal'], ['vertical', 'Vertical']].map((x) => ({ label: x[1], id: 'tro-' + x[0], check: ((t.dir === 'vertical') === (x[0] === 'vertical')) ? undefined : false, run: set(x[0]) }));
+    if (t.type === 'fade') return [['smooth', 'Smoothly'], ['black', 'Through Black']].map((x) => ({ label: x[1], id: 'tro-' + x[0], check: ((t.dir === 'black') === (x[0] === 'black')) ? undefined : false, run: set(x[0]) }));
+    return [];
+  }
+  def('trOptions', { run: (b) => openMenu(b, trOptionItems()), enabled: () => trOptionItems().length > 0 });
+  def('trDur', { change: (v) => E.mutate(() => E.pres.setTransition(E.cur, { dur: Number(v) }), 'meta'), enabled: () => ['none', 'cut'].indexOf(E.slide().transition.type) < 0, value: () => E.slide().transition.dur.toFixed(2) });
   def('trAll', { run: () => E.mutate(() => E.pres.applyTransitionToAll(E.cur), 'meta') });
+  def('trClick', { run: () => E.mutate(() => E.pres.setAdvance(E.cur, { click: !E.slide().advance.click }), 'meta'), pressed: () => E.slide().advance.click });
+  def('trAfter', { change: (v) => E.mutate(() => E.pres.setAdvance(E.cur, { after: v === '' ? null : Number(v) }), 'meta'), value: () => (E.slide().advance.after ? String(E.slide().advance.after) : '') });
 
   // animations
-  def('anPreview', { run: previewAnimations });
-  Q.ANIM_EFFECTS.forEach((ef) => def('an:' + ef, { run: () => E.mutate(() => E.sel.forEach((id) => E.pres.setAnim(E.cur, id, ef)), 'meta'), enabled: hasSel, pressed: () => { const a = selAnim(); return ef === 'none' ? hasSel() && !a : !!a && a.effect === ef; } }));
-  def('an:exist', dis());
-  def('anOptions', { run: (b) => openMenu(b, ['bottom', 'left', 'right', 'top'].map((d) => ({ label: 'From ' + d[0].toUpperCase() + d.slice(1), check: selAnim().dir === d ? undefined : false, run: () => E.mutate(() => E.pres.setAnim(E.cur, E.sel[0], 'flyin', { dir: d }), 'meta') }))), enabled: () => !!selAnim() && selAnim().effect === 'flyin' });
-  def('anStart', { change: (v) => E.mutate(() => E.sel.forEach((id) => { const a = E.pres.getAnim(E.cur, id); if (a) E.pres.setAnim(E.cur, id, a.effect, { start: v }); }), 'meta'), enabled: () => !!selAnim(), value: () => (selAnim() ? selAnim().start : '') });
-  def('anDur', { change: (v) => E.mutate(() => E.sel.forEach((id) => { const a = E.pres.getAnim(E.cur, id); if (a) E.pres.setAnim(E.cur, id, a.effect, { dur: Number(v) }); }), 'meta'), enabled: () => !!selAnim(), value: () => (selAnim() ? selAnim().dur.toFixed(2) : '0.00') });
-  def('anDelay', { change: (v) => E.mutate(() => E.sel.forEach((id) => { const a = E.pres.getAnim(E.cur, id); if (a) E.pres.setAnim(E.cur, id, a.effect, { delay: Number(v) }); }), 'meta'), enabled: () => !!selAnim(), value: () => (selAnim() ? selAnim().delay.toFixed(2) : '0.00') });
-  def('anEarlier', { run: () => E.mutate(() => E.pres.moveAnim(E.cur, selAnim().id, -1), 'meta'), enabled: () => !!selAnim() });
-  def('anLater', { run: () => E.mutate(() => E.pres.moveAnim(E.cur, selAnim().id, 1), 'meta'), enabled: () => !!selAnim() });
+  def('anPreview', { run: previewAnimations, enabled: () => E.slide().anims.length > 0 });
+  const pickEffect = (ef) => E.mutate(() => E.sel.forEach((id, k) => {
+    const cur = k === 0 ? selAnim() : null;
+    if (ef === 'none') E.pres.setAnim(E.cur, id, 'none'); else if (cur) E.pres.updateAnim(E.cur, cur.id, { effect: ef }); else E.pres.setAnim(E.cur, id, ef);
+  }), 'meta');
+  Q.ANIM_EFFECTS.forEach((ef) => def('an:' + ef, { run: () => pickEffect(ef), enabled: hasSel, pressed: () => { const a = selAnim(); return ef === 'none' ? hasSel() && !a : !!a && a.effect === ef; } }));
+  def('an:exist', { run: (b) => {
+    const s = E.slide();
+    openMenu(b, s.anims.length ? s.anims.map((a, k) => ({ label: (k + 1) + '. ' + effName(a.effect) + ' – ' + shapeLabel(E.shape(a.shapeId)), id: 'anx-' + a.id, run: () => { selAnimId = a.id; E.select([a.shapeId]); } })) : [{ label: 'No animations on this slide', disabled: true }]);
+  } });
+  def('an:more', { run: (b) => openMenu(b, effectMenuItems(pickEffect)), enabled: hasSel });
+  def('anAdd', { run: (b) => openMenu(b, effectMenuItems((ef) => { let last = null; E.mutate(() => E.sel.forEach((id) => { const a = E.pres.addAnim(E.cur, id, ef); if (a) last = a; }), 'meta'); if (last) selAnimId = last.id; })), enabled: hasSel });
+  function anOptionItems() {
+    const a = selAnim(); if (!a) return [];
+    const set = (patch) => () => E.mutate(() => E.pres.updateAnim(E.cur, a.id, patch), 'meta');
+    if (Q.ANIM_DIR_EFFECTS.indexOf(a.effect) >= 0) return ['bottom', 'left', 'right', 'top'].map((d) => ({ label: 'From ' + capw(d), id: 'ano-' + d, check: a.dir === d ? undefined : false, run: set({ dir: d }) }));
+    if (a.effect === 'spin') return [[90, 'Quarter Spin'], [180, 'Half Spin'], [360, 'Full Spin'], [720, 'Two Spins'], [-360, 'Full Spin Counterclockwise']].map((x) => ({ label: x[1], id: 'ano-' + x[0], check: a.amount === x[0] ? undefined : false, run: set({ amount: x[0] }) }));
+    if (a.effect === 'growshrink') return [[0.25, 'Tiny'], [0.5, 'Smaller'], [1.5, 'Larger'], [2, 'Huge']].map((x) => ({ label: x[1], id: 'ano-' + x[0], check: a.amount === x[0] ? undefined : false, run: set({ amount: x[0] }) }));
+    return [];
+  }
+  def('anOptions', { run: (b) => openMenu(b, anOptionItems()), enabled: () => anOptionItems().length > 0 });
+  const setSel = (patch) => () => 0;
+  def('anStart', { change: (v) => { const a = selAnim(); if (a) E.mutate(() => E.pres.updateAnim(E.cur, a.id, { start: v }), 'meta'); }, enabled: () => !!selAnim(), value: () => (selAnim() ? selAnim().start : 'onclick') });
+  def('anDur', { change: (v) => { const a = selAnim(); if (a) E.mutate(() => E.pres.updateAnim(E.cur, a.id, { dur: Number(v) }), 'meta'); }, enabled: () => !!selAnim(), value: () => (selAnim() ? selAnim().dur.toFixed(2) : '0.00') });
+  def('anDelay', { change: (v) => { const a = selAnim(); if (a) E.mutate(() => E.pres.updateAnim(E.cur, a.id, { delay: Number(v) }), 'meta'); }, enabled: () => !!selAnim(), value: () => (selAnim() ? selAnim().delay.toFixed(2) : '0.00') });
+  def('anEarlier', { run: () => E.mutate(() => E.pres.moveAnim(E.cur, selAnim().id, -1), 'meta'), enabled: () => !!selAnim() && E.slide().anims.indexOf(selAnim()) > 0 });
+  def('anLater', { run: () => E.mutate(() => E.pres.moveAnim(E.cur, selAnim().id, 1), 'meta'), enabled: () => !!selAnim() && E.slide().anims.indexOf(selAnim()) < E.slide().anims.length - 1 });
   def('anPane', { run: animPaneDialog });
 
   // slide show / review / view / help
   def('fromStart', { run: () => startShow(0) }); def('fromCurrent', { run: () => startShow(E.cur) });
-  def('presenter', na('Presenter View')); def('custom', dis()); def('coach', na('Rehearse with Coach'));
+  def('presenter', { run: () => startShow(E.cur, { presenter: true }) });
+  def('custom', { run: (b) => customMenu(b) });
+  def('coach', { run: (b, ev) => { if (ev && ev.target.closest && ev.target.closest('.dd')) coachMenu(b); else startShow(0, { rehearse: true }); } });
+  def('useTimings', { run: () => E.mutate(() => E.pres.setShowOptions({ useTimings: !E.pres.show.useTimings }), 'meta'), pressed: () => E.pres.show.useTimings });
+  def('loopShow', { run: () => E.mutate(() => E.pres.setShowOptions({ loop: !E.pres.show.loop }), 'meta'), pressed: () => E.pres.show.loop });
   def('review', dis()); def('proofing', na('Proofing')); def('access', { run: accessibilityDialog });
   def('markread', dis()); def('changes', dis());
   const anyComments = () => E.pres.allComments().length > 0;
@@ -988,18 +1363,19 @@
     ],
     Transitions: [
       { l: 'Preview', items: [B('preview', 'preview', 'Preview')] },
-      { l: 'Transitions', items: [{ t: 'gallery', cls: '', items: [['tr:exist', 'tr-exist', 'Existing'], ['tr:none', 'tr-none', 'None'], ['tr:more', 'tr-more', 'More'], ['tr:cut', 'tr-cut', 'Cut'], ['tr:fade', 'tr-fade', 'Fade'], ['tr:push', 'tr-push', 'Push'], ['tr:wipe', 'tr-wipe', 'Wipe']] }, B('trOptions', 'options', 'Options', { dd: true })] },
-      { l: 'Timing', items: [col({ t: 'num', c: 'trDur', i: 'clock', l: 'Duration', step: 0.25, min: 0, max: 10 }, S('trAll', 'applyall', 'Apply to All'))] },
+      { l: 'Transitions', items: [{ t: 'gallery', more: 'tr:more', items: [['tr:exist', 'tr-exist', 'Existing'], ['tr:none', 'tr-none', 'None'], ['tr:morph', 'tr-more', 'Morph'], ['tr:cut', 'tr-cut', 'Cut'], ['tr:fade', 'tr-fade', 'Fade'], ['tr:push', 'tr-push', 'Push'], ['tr:wipe', 'tr-wipe', 'Wipe']] }, B('trOptions', 'options', 'Options', { dd: true })] },
+      { l: 'Timing', items: [col({ t: 'num', c: 'trDur', i: 'clock', l: 'Duration', step: 0.25, min: 0, max: 10 }, S('trAll', 'applyall', 'Apply to All')), col(S('trClick', 'select', 'On Mouse Click'), { t: 'num', c: 'trAfter', i: 'clock', l: 'After', step: 1, min: 0, max: 3600, blank: true })] },
     ],
     Animations: [
       { l: 'Preview', items: [B('anPreview', 'preview', 'Preview')] },
-      { l: 'Animation', items: [{ t: 'gallery', items: [['an:exist', 'tr-exist', 'Existing'], ['an:none', 'an-none', 'None'], ['an:appear', 'an-appear', 'Appear'], ['an:fade', 'an-fade', 'Fade'], ['an:flyin', 'an-fly', 'Fly In']] }, B('anOptions', 'options', 'Effect Options', { dd: true })] },
+      { l: 'Animation', items: [{ t: 'gallery', more: 'an:more', items: [['an:exist', 'tr-exist', 'Existing'], ['an:none', 'an-none', 'None'], ['an:appear', 'an-appear', 'Appear'], ['an:fade', 'an-fade', 'Fade'], ['an:flyin', 'an-fly', 'Fly In']] }, B('anOptions', 'options', 'Effect Options', { dd: true })] },
       { l: 'Timing', items: [col({ t: 'select', c: 'anStart', w: 120, opts: [['onclick', 'On Click'], ['withprev', 'With Previous'], ['afterprev', 'After Previous']], icon: 'start', l: 'Start' }, { t: 'num', c: 'anDur', i: 'clock', l: 'Duration', step: 0.25, min: 0, max: 20 }, { t: 'num', c: 'anDelay', i: 'clock', l: 'Delay', step: 0.25, min: 0, max: 20 })] },
       { l: 'Reorder', items: [B('anEarlier', 'moveup', 'Move Earlier'), B('anLater', 'movedown', 'Move Later')] },
-      { l: 'Advanced', items: [B('anPane', 'animpane', 'Animation Pane')] },
+      { l: 'Advanced Animation', items: [B('anAdd', 'an-appear', 'Add Animation', { dd: true }), B('anPane', 'animpane', 'Animation Pane')] },
     ],
     'Slide Show': [
       { l: 'Start Slide Show', items: [B('fromStart', 'fromstart', 'From Beginning'), B('fromCurrent', 'fromcurrent', 'From Current Slide'), B('presenter', 'presenter', 'Presenter View'), B('custom', 'custom', 'Custom Slideshow', { dd: true })] },
+      { l: 'Set Up', items: [col(S('useTimings', 'clock', 'Use Timings'), S('loopShow', 'loop', 'Loop Continuously'))] },
       { l: 'Coach', items: [B('coach', 'coach', 'Rehearse with Coach', { dd: true })] },
     ],
     Review: [
@@ -1045,6 +1421,7 @@
       case 'gallery': {
         const g = el('div', 'rgallery');
         it.items.forEach((x) => { const gb = mk('gitem', ic(x[1]) + '<span>' + esc(x[2]) + '</span>'); gb.dataset.cmd = x[0]; gb.title = x[2]; g.appendChild(gb); });
+        if (it.more) { const mb = mk('gmore', ic('chev-down')); mb.dataset.cmd = it.more; mb.title = 'More'; mb.setAttribute('aria-label', 'More'); g.appendChild(mb); }
         return g;
       }
       case 'themes': {
@@ -1309,6 +1686,7 @@
   E.on('slide', updateStatus);
   E.on('zoom', updateZoomUi);
   E.on('view', () => { $('viewNormal').classList.toggle('pressed', E.view === 'normal'); $('viewSorter').classList.toggle('pressed', E.view === 'sorter'); $('viewNormal').setAttribute('aria-pressed', String(E.view === 'normal')); $('viewSorter').setAttribute('aria-pressed', String(E.view === 'sorter')); updateZoomUi(); });
+  if (AUDIENCE) startAudience();
   window.__QUADRA_READY = true;
   QUI.exportPng = exportPng; QUI.printDeck = printDeck; QUI.syncTitle = syncTitle;
 })();
