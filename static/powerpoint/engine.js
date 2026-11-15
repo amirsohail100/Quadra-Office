@@ -38,8 +38,26 @@
     { id: 2, name: 'Charcoal', bg: '#1f2430' },
     { id: 3, name: 'Black', bg: '#000000' },
   ];
-  const TRANSITIONS = ['none', 'cut', 'fade', 'push', 'wipe'];
-  const ANIM_EFFECTS = ['none', 'appear', 'fade', 'flyin'];
+  const TRANSITIONS = ['none', 'cut', 'fade', 'push', 'wipe', 'morph', 'cover', 'uncover', 'zoom', 'split'];
+  const TRANSITION_NAMES = { none: 'None', cut: 'Cut', fade: 'Fade', push: 'Push', wipe: 'Wipe', morph: 'Morph', cover: 'Cover', uncover: 'Uncover', zoom: 'Zoom', split: 'Split' };
+  const ANIM_INFO = {
+    appear: { cat: 'entrance', name: 'Appear' }, fade: { cat: 'entrance', name: 'Fade' }, flyin: { cat: 'entrance', name: 'Fly In' },
+    wipe: { cat: 'entrance', name: 'Wipe' }, zoom: { cat: 'entrance', name: 'Zoom' }, float: { cat: 'entrance', name: 'Float In' },
+    pulse: { cat: 'emphasis', name: 'Pulse' }, spin: { cat: 'emphasis', name: 'Spin' }, growshrink: { cat: 'emphasis', name: 'Grow/Shrink' },
+    teeter: { cat: 'emphasis', name: 'Teeter' }, blink: { cat: 'emphasis', name: 'Blink' },
+    disappear: { cat: 'exit', name: 'Disappear' }, fadeout: { cat: 'exit', name: 'Fade Out' }, flyout: { cat: 'exit', name: 'Fly Out' },
+    wipeout: { cat: 'exit', name: 'Wipe Out' }, zoomout: { cat: 'exit', name: 'Zoom Out' }, floatout: { cat: 'exit', name: 'Float Out' },
+  };
+  const ANIM_EFFECTS = ['none'].concat(Object.keys(ANIM_INFO));
+  const animCategory = (e) => (ANIM_INFO[e] ? ANIM_INFO[e].cat : null);
+  const ANIM_DIR_EFFECTS = ['flyin', 'flyout', 'wipe', 'wipeout', 'float', 'floatout'];
+  function animDefaults(effect) {
+    const d = { dur: 0.5, dir: 'bottom', amount: 0 };
+    if (effect === 'appear' || effect === 'disappear') d.dur = 0;
+    if (effect === 'wipe' || effect === 'wipeout') d.dir = 'left';
+    if (effect === 'spin') d.amount = 360; if (effect === 'growshrink') d.amount = 1.5; if (effect === 'teeter' || effect === 'pulse' || effect === 'blink') d.dur = 0.5;
+    return d;
+  }
   const ANIM_STARTS = ['onclick', 'withprev', 'afterprev'];
 
   const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -157,10 +175,14 @@
       shapes: (d.shapes || []).map(normShape), notes: typeof d.notes === 'string' ? d.notes : '',
       transition: Object.assign({ type: 'none', dur: 0.7, dir: 'left' }, d.transition || {}),
       anims: (d.anims || []).filter((a) => a && a.shapeId),
+      advance: Object.assign({ click: true, after: null }, d.advance || {}),
       comments: (d.comments || []).filter((c) => c && typeof c.text === 'string').map((c) => ({ id: c.id || '', text: c.text, author: c.author || 'Quadra user', t: Number(c.t) || 0 })),
     };
     if (TRANSITIONS.indexOf(s.transition.type) < 0) s.transition.type = 'none';
-    s.anims = s.anims.map((a) => Object.assign({ id: '', effect: 'fade', start: 'onclick', dur: 0.5, delay: 0, dir: 'bottom' }, a));
+    s.advance.click = s.advance.click !== false;
+    s.advance.after = Number(s.advance.after) > 0 ? clamp(Number(s.advance.after), 0.1, 3600) : null;
+    s.anims = s.anims.filter((a) => ANIM_EFFECTS.indexOf(a.effect) > 0).map((a) => Object.assign({ id: '', start: 'onclick', delay: 0 }, animDefaults(a.effect), a));
+    s.anims.forEach((a) => { if (ANIM_STARTS.indexOf(a.start) < 0) a.start = 'onclick'; });
     return s;
   }
 
@@ -174,6 +196,8 @@
       if (!THEMES.some((t) => t.id === this.theme.id)) this.theme.id = 'plain';
       if (!VARIANTS.some((v) => v.id === this.theme.variant)) this.theme.variant = 0;
       this.footer = Object.assign({ show: false, text: '', numbers: false }, d.footer || {});
+      this.show = Object.assign({ useTimings: true, loop: false }, d.show || {}); this.show.useTimings = this.show.useTimings !== false; this.show.loop = !!this.show.loop;
+      this.customShows = (Array.isArray(d.customShows) ? d.customShows : []).filter((c) => c && typeof c.name === 'string' && Array.isArray(c.slides)).map((c) => ({ id: c.id || '', name: c.name, slides: c.slides.map(String) }));
       this.seq = Number(d.seq) > 0 ? Number(d.seq) : 1;
       this.slides = (d.slides || []).filter((s) => s && typeof s === 'object').map(normSlide);
       this._fixIds();
@@ -184,7 +208,7 @@
       try { return new Presentation(typeof o === 'string' ? JSON.parse(o) : o); } catch (e) { return new Presentation({}); }
     }
     toJSON() {
-      return { v: 1, name: this.name, size: this.size, theme: clone(this.theme), footer: clone(this.footer), seq: this.seq, slides: clone(this.slides) };
+      return { v: 1, name: this.name, size: this.size, theme: clone(this.theme), footer: clone(this.footer), show: clone(this.show), customShows: clone(this.customShows), seq: this.seq, slides: clone(this.slides) };
     }
     get W() { return W; }
     get H() { return SIZES[this.size].h; }
@@ -198,9 +222,11 @@
         s.anims.forEach((a) => { max = Math.max(max, num(a.id)); });
         s.comments.forEach((c) => { max = Math.max(max, num(c.id)); });
       });
+      this.customShows.forEach((c) => { max = Math.max(max, num(c.id)); });
       if (this.seq <= max) this.seq = max + 1;
       const seen = new Set();
       const uniq = (id, p) => { if (!id || seen.has(id)) id = this.nid(p); seen.add(id); return id; };
+      this.customShows.forEach((c) => { c.id = uniq(c.id, 'cs'); });
       this.slides.forEach((s) => {
         s.id = uniq(s.id, 's');
         s.shapes.forEach((sh) => { sh.id = uniq(sh.id, 'sh'); });
@@ -220,7 +246,7 @@
 
     // slides
     _newSlide(layout) {
-      const s = { id: this.nid('s'), layout, shapes: [], notes: '', transition: { type: 'none', dur: 0.7, dir: 'left' }, anims: [], comments: [] };
+      const s = { id: this.nid('s'), layout, shapes: [], notes: '', transition: { type: 'none', dur: 0.7, dir: 'left' }, advance: { click: true, after: null }, anims: [], comments: [] };
       layoutPlaceholders(layout, this.H).forEach((p) => s.shapes.push(this._phShape(p)));
       return s;
     }
@@ -462,28 +488,65 @@
       if (variant != null && VARIANTS.some((v) => v.id === variant)) this.theme.variant = variant;
     }
 
-    // animations
+    // animations (a shape can have several: entrance, emphasis, exit ...)
     getAnim(i, shapeId) { const s = this.slides[i]; return s ? s.anims.find((a) => a.shapeId === shapeId) || null : null; }
+    getAnims(i, shapeId) { const s = this.slides[i]; return s ? s.anims.filter((a) => a.shapeId === shapeId) : []; }
+    _applyAnimPatch(a, patch) {
+      if (!patch) return;
+      if (patch.effect && ANIM_EFFECTS.indexOf(patch.effect) > 0) a.effect = patch.effect;
+      if (patch.start && ANIM_STARTS.indexOf(patch.start) >= 0) a.start = patch.start;
+      if (patch.dur != null) a.dur = clamp(Number(patch.dur) || 0, 0, 20);
+      if (patch.delay != null) a.delay = clamp(Number(patch.delay) || 0, 0, 20);
+      if (patch.dir) a.dir = patch.dir;
+      if (patch.amount != null && isFinite(Number(patch.amount))) a.amount = Number(patch.amount);
+    }
+    addAnim(i, shapeId, effect, patch) {
+      const s = this.slides[i]; if (!s || !this.getShape(i, shapeId) || ANIM_EFFECTS.indexOf(effect) < 1) return null;
+      const a = Object.assign({ id: this.nid('an'), shapeId, effect, start: 'onclick', delay: 0 }, animDefaults(effect));
+      this._applyAnimPatch(a, patch); s.anims.push(a); return a;
+    }
+    updateAnim(i, animId, patch) {
+      const s = this.slides[i]; const a = s && s.anims.find((x) => x.id === animId); if (!a) return null;
+      if (patch && patch.effect && patch.effect !== a.effect && ANIM_EFFECTS.indexOf(patch.effect) > 0) { Object.assign(a, animDefaults(patch.effect)); }
+      this._applyAnimPatch(a, patch); return a;
+    }
+    removeAnim(i, animId) { const s = this.slides[i]; if (!s) return false; const n = s.anims.length; s.anims = s.anims.filter((a) => a.id !== animId); return s.anims.length < n; }
+    // gallery behaviour: change the shape's first animation, create one if none, 'none' removes all of the shape's animations
     setAnim(i, shapeId, effect, patch) {
       const s = this.slides[i]; if (!s || !this.getShape(i, shapeId)) return null;
       if (ANIM_EFFECTS.indexOf(effect) < 0) return null;
       if (effect === 'none') { s.anims = s.anims.filter((a) => a.shapeId !== shapeId); return null; }
-      let a = s.anims.find((x) => x.shapeId === shapeId);
-      if (!a) { a = { id: this.nid('an'), shapeId, effect, start: 'onclick', dur: 0.5, delay: 0, dir: 'bottom' }; s.anims.push(a); }
-      a.effect = effect;
-      if (patch) {
-        if (patch.start && ANIM_STARTS.indexOf(patch.start) >= 0) a.start = patch.start;
-        if (patch.dur != null) a.dur = clamp(Number(patch.dur) || 0, 0, 20);
-        if (patch.delay != null) a.delay = clamp(Number(patch.delay) || 0, 0, 20);
-        if (patch.dir) a.dir = patch.dir;
-      }
-      return a;
+      const a = s.anims.find((x) => x.shapeId === shapeId);
+      if (!a) return this.addAnim(i, shapeId, effect, patch);
+      return this.updateAnim(i, a.id, Object.assign({ effect }, patch || {}));
     }
     moveAnim(i, animId, delta) {
       const s = this.slides[i]; if (!s) return;
       const k = s.anims.findIndex((a) => a.id === animId); if (k < 0) return;
       const to = clamp(k + delta, 0, s.anims.length - 1);
       const [a] = s.anims.splice(k, 1); s.anims.splice(to, 0, a);
+    }
+    // slide timing / show settings / custom shows
+    setAdvance(i, patch) {
+      const s = this.slides[i]; if (!s || !patch) return;
+      if (patch.click != null) s.advance.click = !!patch.click;
+      if ('after' in patch) s.advance.after = Number(patch.after) > 0 ? clamp(Number(patch.after), 0.1, 3600) : null;
+    }
+    setShowOptions(patch) { if (patch.useTimings != null) this.show.useTimings = !!patch.useTimings; if (patch.loop != null) this.show.loop = !!patch.loop; }
+    addCustomShow(name, slideIds) {
+      name = String(name || '').trim(); const ids = (slideIds || []).filter((id) => this.slides.some((s) => s.id === id));
+      if (!name || !ids.length) return null;
+      const c = { id: this.nid('cs'), name, slides: ids }; this.customShows.push(c); return c;
+    }
+    updateCustomShow(id, name, slideIds) {
+      const c = this.customShows.find((x) => x.id === id); if (!c) return null;
+      const ids = (slideIds || []).filter((x) => this.slides.some((s) => s.id === x)); name = String(name || '').trim();
+      if (!name || !ids.length) return null; c.name = name; c.slides = ids; return c;
+    }
+    removeCustomShow(id) { const n = this.customShows.length; this.customShows = this.customShows.filter((c) => c.id !== id); return this.customShows.length < n; }
+    customOrder(id) {
+      const c = this.customShows.find((x) => x.id === id); if (!c) return [];
+      return c.slides.map((sid) => this.slides.findIndex((s) => s.id === sid)).filter((k) => k >= 0);
     }
 
     // find / replace
@@ -562,8 +625,12 @@
   }
 
   class ShowState {
-    constructor(pres, start) {
-      this.pres = pres; this.i = clamp(start || 0, 0, pres.slides.length - 1);
+    constructor(pres, start, order) {
+      this.pres = pres;
+      this.order = Array.isArray(order) && order.length ? order.filter((k) => pres.slides[k]) : pres.slides.map((x, k) => k);
+      if (!this.order.length) this.order = [0];
+      this.pos = Array.isArray(order) && order.length ? 0 : clamp(start || 0, 0, this.order.length - 1);
+      this.i = this.order[this.pos];
       this.g = 0; this.auto = [];
       this._enter(false);
     }
@@ -573,19 +640,28 @@
       if (fromEnd) { this.g = gs.length; this.auto = []; return; }
       if (gs.length && gs[0].auto) { this.g = 1; this.auto = gs[0].entries.slice(); } else { this.g = 0; this.auto = []; }
     }
-    // shape ids that must be hidden right now (not yet revealed)
+    autoDone() { this.auto = []; } // the automatic group has been played by the player
+    restart() { this.pos = 0; this.i = this.order[0]; this._enter(false); }
+    goTo(slideIndex) { const p = this.order.indexOf(slideIndex); if (p < 0) return false; this.pos = p; this.i = slideIndex; this._enter(false); return true; }
+    isLast() { return this.pos >= this.order.length - 1; }
+    // shape ids that must be hidden right now: entrance effects not yet played, exit effects already played
     hiddenIds() {
-      const gs = this.groups(); const ids = [];
-      this.auto.forEach((a) => ids.push(a.shapeId));
-      for (let k = this.g; k < gs.length; k++) gs[k].entries.forEach((a) => ids.push(a.shapeId));
-      return ids;
+      const gs = this.groups(); const slide = this.pres.slides[this.i], first = {};
+      slide.anims.forEach((a) => { if (!(a.shapeId in first)) first[a.shapeId] = a; });
+      const hidden = new Set();
+      Object.keys(first).forEach((id) => { if (animCategory(first[id].effect) === 'entrance') hidden.add(id); });
+      for (let k = this.auto.length ? 1 : 0; k < this.g; k++) {
+        gs[k].entries.forEach((a) => { const c = animCategory(a.effect); if (c === 'entrance') hidden.delete(a.shapeId); else if (c === 'exit') hidden.add(a.shapeId); });
+      }
+      return Array.from(hidden);
     }
     next() {
       const gs = this.groups();
       if (this.g < gs.length) { const group = gs[this.g++]; return { kind: 'anim', group, slide: this.i }; }
-      if (this.i < this.pres.slides.length - 1) {
-        this.i++; this._enter(false);
-        return { kind: 'slide', slide: this.i, transition: this.pres.slides[this.i].transition, auto: this.auto };
+      if (this.pos < this.order.length - 1) {
+        this.pos++; this.i = this.order[this.pos]; this._enter(false);
+        const s = this.pres.slides[this.i];
+        return { kind: 'slide', slide: this.i, transition: s.transition, advance: s.advance, auto: this.auto };
       }
       return { kind: 'end' };
     }
@@ -593,13 +669,13 @@
       const gs = this.groups();
       const floor = gs.length && gs[0].auto ? 1 : 0;
       if (this.g > floor) { const group = gs[--this.g]; return { kind: 'unanim', group, slide: this.i }; }
-      if (this.i > 0) { this.i--; this._enter(true); return { kind: 'slide', slide: this.i, transition: null, auto: [] }; }
+      if (this.pos > 0) { this.pos--; this.i = this.order[this.pos]; this._enter(true); return { kind: 'slide', slide: this.i, transition: null, advance: this.pres.slides[this.i].advance, auto: [] }; }
       return { kind: 'none' };
     }
   }
 
   return {
-    W, SIZES, LAYOUTS, PH_PROMPT, FONTS, SIZES_PT, THEMES, VARIANTS, TRANSITIONS, ANIM_EFFECTS, ANIM_STARTS,
+    W, SIZES, LAYOUTS, PH_PROMPT, FONTS, SIZES_PT, THEMES, VARIANTS, TRANSITIONS, TRANSITION_NAMES, ANIM_EFFECTS, ANIM_INFO, ANIM_STARTS, ANIM_DIR_EFFECTS, animCategory, animDefaults,
     Presentation, History, ShowState, animGroups, groupTimeline, layoutPlaceholders, normShape,
     canHoldText, hasTextStyle, safeUrl, STOCK, stockUrl, svgUrl, escapeXml: esc, isLineType, DEFAULT_TS, clone, clamp, contrastColor, shade, luminance, hexToRgb,
   };
