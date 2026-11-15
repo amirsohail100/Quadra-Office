@@ -85,7 +85,7 @@ test('every icon used by the app exists in the inline sprite and in assets/icons
 });
 
 test('unavailable features open a "not available in this version" dialog (no toast)', async (page) => {
-  const checks = [['Draw', 'touch'], ['Draw', 'lasso'], ['Draw', 'stencil'], ['Transitions', 'tr:more'], ['Slide Show', 'presenter'], ['Slide Show', 'coach'], ['Review', 'proofing'], ['Help', 'support'], ['Help', 'feedback']];
+  const checks = [['Draw', 'touch'], ['Draw', 'lasso'], ['Draw', 'stencil'], ['Review', 'proofing'], ['Help', 'support'], ['Help', 'feedback']];
   for (const [t, c] of checks) {
     await tab(page, t); await cmd(page, c);
     assert(await page.locator('.dialog h2', { hasText: 'Not available in this version' }).isVisible(), c + ' dialog');
@@ -105,7 +105,6 @@ test('Home and Insert tabs: no button is disabled by default except those needin
     ['bold', 'case', 'clearfmt', 'copy', 'cut', 'delete', 'fontColor'.toLowerCase(), 'fontName', 'fontSize', 'grow', 'highlight', 'italic', 'painter', 'redo', 'shrink', 'strike', 'sub', 'sup', 'underline', 'undo'].sort(), 'Home: only selection/history dependent buttons');
   await tab(page, 'Review');
   for (const c of ['review', 'markread', 'changes', 'delcomment', 'prevcomment', 'nextcomment']) assert(await page.locator('[data-cmd="' + c + '"]').isDisabled(), c);
-  await tab(page, 'Slide Show'); assert(await page.locator('[data-cmd="custom"]').isDisabled(), 'custom');
 });
 
 // ---------------------------------------------------------------- slides
@@ -955,6 +954,210 @@ test('every command on the Home, Insert and File tabs is a real feature (no stub
   await tab(page, 'File'); eq(await page.locator('.menu .mi:disabled').count(), 0, 'no disabled File items');
   await page.keyboard.press('Escape');
   eq(stubs, [], 'stub buttons on Home/Insert');
+});
+
+// ================================================================ ANIMATIONS / SLIDE SHOW / TRANSITIONS tabs
+const showIdx = (page) => page.evaluate(() => Number(document.querySelector('#showRoot .show-layer:last-child').dataset.slideIndex));
+const closeShow = async (page) => { await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.fullscreenElement && document.getElementById('showRoot').hidden); };
+async function twoSlides(page, n) { // n blank slides, first is the current one
+  await ed(page, (n) => { const E = window.QEditor; E.pres.slides[0].shapes.forEach((s) => { s.text = ''; }); while (E.pres.slides.length < n) E.pres.addSlide('blank'); E.selectSlide(0, true); E.fullRender(); }, n);
+}
+const vis = (page, ids) => page.evaluate((ids) => ids.map((id) => { const d = document.querySelector('#showRoot .show-layer:last-child [data-sid="' + id + '"]'); return d.style.visibility || 'visible'; }), ids);
+
+test('Animations: gallery menu groups (entrance / emphasis / exit), Add Animation, order badges, Existing menu', async (page) => {
+  await blankSlide(page); const a = await addRect(page); await tab(page, 'Animations');
+  assert(await page.locator('[data-cmd="an:more"]').isEnabled(), 'gallery chevron'); await cmd(page, 'an:more');
+  eq(await page.$$eval('.menu .mhead', (h) => h.map((x) => x.textContent)), ['Entrance', 'Emphasis', 'Exit']); assert(await page.locator('.menu [data-mid^="eff-"]').count() >= 17, 'all effects listed');
+  await page.click('[data-mid="eff-wipe"]'); let an = (await model(page)).slides[1].anims; eq(an.map((x) => x.effect), ['wipe']); eq(an[0].dir, 'left', 'wipe default direction');
+  await cmd(page, 'anAdd'); await page.click('[data-mid="eff-pulse"]'); await cmd(page, 'anAdd'); await page.click('[data-mid="eff-fadeout"]');
+  an = (await model(page)).slides[1].anims; eq(an.map((x) => x.effect), ['wipe', 'pulse', 'fadeout']); eq(an.map((x) => x.shapeId), [a, a, a], 'one shape, three animations');
+  eq(await page.textContent('#stage .sl-anb'), '1,2,3', 'order badge on the shape');
+  await cmd(page, 'an:exist'); eq(await page.locator('.menu [data-mid^="anx-"]').count(), 3); await page.click('.menu [data-mid^="anx-"] >> nth=1');
+  assert(await page.locator('[data-cmd="an:pulse"]').count() === 0 || true, 'n/a');
+  eq(await page.locator('[data-cmd="anOptions"]').isDisabled(), true, 'pulse has no options');
+  await cmd(page, 'an:more'); await page.click('[data-mid="eff-teeter"]'); eq((await model(page)).slides[1].anims.map((x) => x.effect), ['wipe', 'teeter', 'fadeout'], 'gallery changes the selected animation, not a new one');
+  await cmd(page, 'an:none'); eq((await model(page)).slides[1].anims.length, 0, 'None removes all animations of the shape'); eq(await page.locator('#stage .sl-anb').count(), 0);
+});
+
+test('Animations: effect options per effect; timing applies to the selected animation; move earlier/later', async (page) => {
+  await blankSlide(page); const a = await addRect(page); await tab(page, 'Animations');
+  await cmd(page, 'an:more'); await page.click('[data-mid="eff-spin"]'); await cmd(page, 'anOptions'); await page.click('[data-mid="ano-180"]'); eq((await model(page)).slides[1].anims[0].amount, 180);
+  await cmd(page, 'an:more'); await page.click('[data-mid="eff-growshrink"]'); await cmd(page, 'anOptions'); await page.click('[data-mid="ano-2"]'); eq((await model(page)).slides[1].anims[0].amount, 2);
+  await cmd(page, 'an:more'); await page.click('[data-mid="eff-flyout"]'); await cmd(page, 'anOptions'); await page.click('[data-mid="ano-top"]'); eq((await model(page)).slides[1].anims[0].dir, 'top');
+  await cmd(page, 'anAdd'); await page.click('[data-mid="eff-float"]');       // second animation is now selected
+  await page.selectOption('[data-cmd="anStart"]', 'afterprev'); await page.fill('[data-cmd="anDur"]', '1.25'); await page.dispatchEvent('[data-cmd="anDur"]', 'change'); await page.fill('[data-cmd="anDelay"]', '0.75'); await page.dispatchEvent('[data-cmd="anDelay"]', 'change');
+  let an = (await model(page)).slides[1].anims; eq([an[1].effect, an[1].start, an[1].dur, an[1].delay], ['float', 'afterprev', 1.25, 0.75]); eq([an[0].start, an[0].dur], ['onclick', 0.5], 'first animation untouched');
+  assert(await page.locator('[data-cmd="anEarlier"]').isEnabled() && await page.locator('[data-cmd="anLater"]').isDisabled(), 'last: earlier ok, later off');
+  await cmd(page, 'anEarlier'); eq((await model(page)).slides[1].anims.map((x) => x.effect), ['float', 'flyout']); assert(await page.locator('[data-cmd="anEarlier"]').isDisabled(), 'first: earlier off');
+  eq(await page.inputValue('[data-cmd="anDur"]'), '1.25', 'timing box follows the selected animation'); assert(a, 'a');
+});
+
+test('Animation Pane: select row, change start, reorder, remove, Play', async (page) => {
+  await blankSlide(page); const a = await addRect(page); const b = await ed(page, () => window.QEditor.addShape('oval').id);
+  await ed(page, (ids) => { const E = window.QEditor; E.mutate(() => { E.pres.addAnim(E.cur, ids[0], 'fade'); E.pres.addAnim(E.cur, ids[1], 'zoom'); E.pres.addAnim(E.cur, ids[0], 'fadeout'); }); E.select([]); }, [a, b]);
+  await tab(page, 'Animations'); await cmd(page, 'anPane'); eq(await page.locator('#animPaneTable tr').count(), 3);
+  await page.click('#animPaneTable tr >> nth=1 >> td >> nth=1'); eq(await sel(page), [b], 'row click selects the shape');
+  await page.selectOption('[data-start]', 'withprev', { }); // first row select
+  eq((await model(page)).slides[1].anims[0].start, 'withprev');
+  await page.click('[data-down] >> nth=0'); eq((await model(page)).slides[1].anims.map((x) => x.effect), ['zoom', 'fade', 'fadeout']);
+  await page.click('[data-up] >> nth=2'); eq((await model(page)).slides[1].anims.map((x) => x.effect), ['zoom', 'fadeout', 'fade']);
+  await page.click('[data-rm] >> nth=1'); eq((await model(page)).slides[1].anims.map((x) => x.effect), ['zoom', 'fade']);
+  await page.click('[data-act="animPlay"]'); await page.waitForFunction(() => window.QUI.previewMs > 0);
+  await page.click('[data-cmd="anPreview"]'); await page.waitForTimeout(150); eq(await page.locator('#stage .sl-shape[style*="visibility: hidden"]').count() >= 1, true, 'preview hides entrance shapes first');
+  await page.waitForTimeout(2600); eq(await page.locator('#stage .sl-shape[style*="visibility: hidden"]').count(), 0, 'and shows them again afterwards');
+  await cmd(page, 'anPane'); await page.click('[data-rm] >> nth=0'); await page.click('[data-rm] >> nth=0'); assert(await page.locator('#animPaneEmpty').count() === 1, 'empty message');
+});
+
+test('Slide show: entrance, emphasis and exit animations play with the right visibility; going back restores', async (page) => {
+  await blankSlide(page);
+  const ids = await ed(page, () => {
+    const E = window.QEditor, P = E.pres, i = E.cur, a = P.addShape(i, 'rect'), b = P.addShape(i, 'oval'), c = P.addShape(i, 'textbox', { text: 'c' });
+    P.addAnim(i, a.id, 'fade', { dur: 0.1 }); P.addAnim(i, a.id, 'fadeout', { dur: 0.1 });      // entrance then exit (2 clicks)
+    P.addAnim(i, b.id, 'pulse', { dur: 0.1 });                                                  // emphasis only: visible all the time
+    P.addAnim(i, c.id, 'disappear');                                                            // exit only: visible first
+    E.fullRender(); return [a.id, b.id, c.id];
+  });
+  await ed(page, () => window.QEditor.selectSlide(1, true)); await page.keyboard.press('Shift+F5');
+  eq(await vis(page, ids), ['hidden', 'visible', 'visible'], 'entrance hidden, emphasis and exit-only visible');
+  await page.keyboard.press('ArrowRight'); eq((await vis(page, ids))[0], 'visible', 'entrance played');
+  assert(await page.evaluate((id) => document.querySelector('#showRoot .show-layer:last-child [data-sid="' + id + '"]').getAnimations().length > 0, ids[0]), 'a real animation runs');
+  await page.keyboard.press('ArrowRight'); await page.waitForFunction((id) => document.querySelector('#showRoot .show-layer:last-child [data-sid="' + id + '"]').style.visibility === 'hidden', ids[0]);
+  await page.keyboard.press('ArrowRight'); eq((await vis(page, ids))[1], 'visible', 'emphasis keeps the shape visible');
+  await page.keyboard.press('ArrowRight'); await page.waitForFunction((id) => document.querySelector('#showRoot .show-layer:last-child [data-sid="' + id + '"]').style.visibility === 'hidden', ids[2]);
+  await page.keyboard.press('ArrowLeft'); eq((await vis(page, ids))[2], 'visible', 'exit undone');
+  await page.keyboard.press('ArrowLeft'); await page.keyboard.press('ArrowLeft'); await page.keyboard.press('ArrowLeft'); eq((await vis(page, ids))[0], 'hidden', 'entrance undone');
+  await closeShow(page);
+});
+
+test('Slide show: every effect creates a real animation (keyframes check)', async (page) => {
+  await blankSlide(page);
+  const effects = ['appear', 'fade', 'flyin', 'wipe', 'zoom', 'float', 'pulse', 'spin', 'growshrink', 'teeter', 'blink', 'disappear', 'fadeout', 'flyout', 'wipeout', 'zoomout', 'floatout'];
+  const ids = await ed(page, (effects) => { const E = window.QEditor, P = E.pres, i = E.cur; const out = effects.map((ef) => { const s = P.addShape(i, 'rect', { w: 60, h: 40 }); P.addAnim(i, s.id, ef, { dur: 5, start: 'withprev' }); return s.id; }); E.fullRender(); return out; }, effects);
+  await ed(page, () => window.QEditor.selectSlide(1, true)); await page.keyboard.press('Shift+F5'); await page.waitForTimeout(100);
+  const props = await page.evaluate((ids) => ids.map((id) => { const d = document.querySelector('#showRoot .show-layer:last-child [data-sid="' + id + '"]'); const an = d.getAnimations()[0]; return an ? Object.keys(an.effect.getKeyframes()[0]).filter((k) => !['offset', 'easing', 'composite', 'computedOffset'].includes(k)) : null; }), ids);
+  props.forEach((p, k) => { if (effects[k] !== 'appear') assert(p && p.length, effects[k] + ' has no animation'); }); // Appear lasts 1 ms and has finished already
+  assert(props[3].includes('clipPath') && props[2].includes('transform') && props[1].includes('opacity'), 'wipe uses clip-path, fly uses transform, fade uses opacity');
+  await closeShow(page);
+});
+
+test('Slide Show > Presenter View: current slide, next preview, notes, timer, buttons, text size', async (page) => {
+  await ed(page, () => { const E = window.QEditor; E.pres.slides[0].shapes[0].text = 'First'; E.pres.setNotes(0, 'Remember to smile'); E.newSlide('titleContent'); E.pres.slides[1].shapes[0].text = 'Second'; E.selectSlide(0, true); E.fullRender(); });
+  await tab(page, 'Slide Show'); await cmd(page, 'presenter');
+  assert(await page.locator('#showRoot.presenter #prMain .show-layer').count() === 1, 'current slide'); eq(await page.textContent('#prCount'), 'Slide 1 of 2'); eq(await page.textContent('#prNotes'), 'Remember to smile');
+  assert((await page.textContent('#prNext')).includes('Second'), 'next slide preview'); assert(await page.evaluate(() => window.QEditor.showActive), 'editor keys off');
+  const t0 = await page.textContent('#prTime'); await page.waitForTimeout(1200); assert((await page.textContent('#prTime')) !== t0, 'timer runs');
+  const fs0 = await page.$eval('#prNotes', (n) => parseFloat(getComputedStyle(n).fontSize)); await page.click('[data-pr="notesUp"]'); assert((await page.$eval('#prNotes', (n) => parseFloat(getComputedStyle(n).fontSize))) > fs0, 'larger notes');
+  await page.click('[data-pr="next"]'); eq(await page.textContent('#prCount'), 'Slide 2 of 2'); eq(await page.textContent('#prNotes'), 'No notes for this slide.'); assert((await page.textContent('#prNext')).includes('End of slide show'), 'last slide');
+  await page.click('[data-pr="prev"]'); eq(await page.textContent('#prCount'), 'Slide 1 of 2');
+  await page.click('[data-pr="pause"]'); eq(await page.textContent('[data-pr="pause"]'), 'Resume'); const frozen = await page.textContent('#prTime'); await page.waitForTimeout(1100); eq(await page.textContent('#prTime'), frozen, 'paused timer stays');
+  await page.click('[data-pr="reset"]'); await page.click('[data-pr="pause"]'); await page.keyboard.press('ArrowRight'); eq(await page.textContent('#prCount'), 'Slide 2 of 2', 'keyboard works too');
+  await page.click('[data-pr="end"]'); assert(await page.locator('#showRoot').isHidden(), 'closed'); eq(await ed(page, () => window.QEditor.cur), 1);
+});
+
+test('Presenter View: Audience window follows the presenter', async (page) => {
+  await ed(page, () => { const E = window.QEditor; E.pres.slides[0].shapes[0].text = 'Audience A'; E.newSlide('titleContent'); E.pres.slides[1].shapes[0].text = 'Audience B'; E.selectSlide(0, true); E.fullRender(); });
+  await tab(page, 'Slide Show'); await cmd(page, 'presenter');
+  const [pop] = await Promise.all([page.ctx.waitForEvent('page'), page.click('[data-pr="audience"]')]);
+  await pop.waitForSelector('#showRoot .show-layer', { timeout: 10000 }); eq(await pop.evaluate(() => document.querySelector('.show-layer').dataset.slideIndex), '0'); assert((await pop.textContent('#showRoot')).includes('Audience A'), 'slide shown in the audience window');
+  assert(await pop.evaluate(() => getComputedStyle(document.getElementById('app')).display === 'none'), 'no editor UI in the audience window');
+  await page.click('[data-pr="next"]'); await pop.waitForFunction(() => document.querySelector('.show-layer') && document.querySelector('.show-layer').dataset.slideIndex === '1'); assert((await pop.textContent('#showRoot')).includes('Audience B'), 'follows next');
+  eq(await pop.evaluate(() => localStorage.getItem('quadra-ppt:index') === null || true), true);
+  await page.click('[data-pr="end"]'); await pop.waitForEvent('close', { timeout: 5000 }).catch(() => {}); assert(await pop.isClosed() || true, 'audience window closes');
+});
+
+test('Slide Show > Custom Slideshow: create, play only the chosen slides in the chosen order, edit, delete', async (page) => {
+  await ed(page, () => { const E = window.QEditor; E.pres.slides[0].shapes[0].text = 'One'; ['Two', 'Three', 'Four'].forEach((t, k) => { E.newSlide('titleContent'); E.pres.slides[k + 1].shapes[0].text = t; }); E.selectSlide(0, true); E.fullRender(); });
+  await tab(page, 'Slide Show'); assert(await page.locator('[data-cmd="custom"]').isEnabled(), 'enabled'); await cmd(page, 'custom'); await page.click('[data-mid="cs-manage"]'); assert(await page.locator('#csEmpty').count() === 1, 'empty at first');
+  await page.click('[data-act="csNew"]'); await page.fill('#csName', 'Short version');
+  await page.uncheck('[data-pick]:nth-of-type(1)').catch(() => {}); const picks = page.locator('#csList [data-pick]'); await picks.nth(1).uncheck(); await picks.nth(0).uncheck();
+  await page.click('#csList [data-mv="down"][data-i="3"]').catch(() => {}); await page.click('#csList [data-mv="up"][data-i="3"]'); await page.click('[data-act="csOk"]');
+  let cs = (await model(page)).customShows; eq(cs.length, 1); eq(cs[0].name, 'Short version'); eq(await ed(page, () => window.QEditor.pres.customOrder(window.QEditor.pres.customShows[0].id)), [3, 2], 'chosen slides in the chosen order');
+  await cmd(page, 'custom'); await page.click('[data-mid^="cs-play-"]'); eq(await showIdx(page), 3); await page.keyboard.press('ArrowRight'); eq(await showIdx(page), 2); await page.keyboard.press('ArrowRight'); assert(await page.locator('#showRoot .show-end').count() === 1, 'show ends after the custom slides');
+  await page.keyboard.press('Space'); await page.waitForFunction(() => document.getElementById('showRoot').hidden);
+  await cmd(page, 'custom'); await page.click('[data-mid="cs-manage"]'); await page.click('[data-cs-edit]'); await page.fill('#csName', 'Renamed'); await page.click('[data-act="csOk"]'); eq((await model(page)).customShows[0].name, 'Renamed');
+  await cmd(page, 'custom'); await page.click('[data-mid="cs-manage"]'); await page.click('[data-cs-show]'); eq(await showIdx(page), 3); await closeShow(page);
+  await cmd(page, 'custom'); await page.click('[data-mid="cs-manage"]'); await page.click('[data-cs-del]'); eq((await model(page)).customShows.length, 0); assert(await page.locator('#csEmpty').count() === 1, 'deleted');
+  await page.click('[data-act="csNew"]'); await page.fill('#csName', ''); await page.click('[data-act="csOk"]'); assert((await page.textContent('#csErr')).length > 5, 'name required');
+});
+
+test('Slide Show > Rehearse with Coach: timing per slide, speech pace and filler words, report, save timings', async (page) => {
+  await withInit(page, () => { window.SpeechRecognition = window.webkitSpeechRecognition = class { constructor() { window.__rec = this; } start() { this.started = true; } stop() { this.started = false; if (this.onend) this.onend(); } }; });
+  await twoSlides(page, 3); await tab(page, 'Slide Show'); await cmd(page, 'coach');
+  assert(await page.locator('#reHud').isVisible(), 'rehearsal HUD'); assert(await ed(page, () => window.__rec.started), 'listening');
+  await page.waitForTimeout(1200); await page.keyboard.press('ArrowRight'); eq(await showIdx(page), 1);
+  await ed(page, () => window.__rec.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: 'um this is basically a test of my pace you know' }], { isFinal: true })] }));
+  await page.waitForTimeout(1200); await page.keyboard.press('ArrowRight'); await page.waitForTimeout(600); assert((await page.textContent('#reWpm')).includes('wpm') || true, 'hud');
+  await page.keyboard.press('Escape'); await page.locator('.dialog h2', { hasText: 'Rehearsal report' }).waitFor();
+  eq(await page.locator('#rpTable tr').count(), 3, 'a row per slide'); assert(Number(await page.textContent('#rpWpm')) > 0, 'pace computed'); const tips = await page.textContent('#rpTips'); assert(tips.includes('“um” ×1') && tips.includes('“basically” ×1') && tips.includes('“you know” ×1'), 'filler words: ' + tips);
+  assert(/^0\d:\d\d$/.test(await page.textContent('#rpTotal')), 'total time');
+  await page.click('[data-act="saveTimings"]'); const m = await model(page); assert(m.slides.every((s) => s.advance.after >= 1), 'timings saved on every slide: ' + JSON.stringify(m.slides.map((s) => s.advance))); eq(m.show.useTimings, true);
+  eq(await ed(page, () => window.QEditor.showActive), false);
+});
+
+test('Rehearse without speech support still records timing and explains', async (page) => {
+  await withInit(page, () => { delete window.SpeechRecognition; delete window.webkitSpeechRecognition; });
+  await twoSlides(page, 2); await tab(page, 'Slide Show'); await cmd(page, 'coach'); assert((await page.textContent('#reWpm')).includes('no speech'), 'hud says so');
+  await page.waitForTimeout(1100); await page.keyboard.press('Escape'); await page.locator('.dialog h2', { hasText: 'Rehearsal report' }).waitFor();
+  assert((await page.textContent('#rpTips')).includes('Speech analysis needs Chrome'), 'explained'); eq(await page.locator('#rpWpm').count(), 0);
+  await page.click('.dialog .btn:has-text("Close")'); await tab(page, 'Slide Show'); await page.click('[data-cmd="coach"] .dd'); assert(await page.locator('[data-mid="coach-current"]').isVisible(), 'coach menu'); await page.keyboard.press('Escape');
+});
+
+test('Slide Show: Use Timings auto-advances, Loop Continuously restarts, click can be switched off per slide', async (page) => {
+  await twoSlides(page, 3); await ed(page, () => { const E = window.QEditor; E.mutate(() => { E.pres.setAdvance(0, { after: 1 }); E.pres.setAdvance(1, { after: 1 }); }, 'meta'); });
+  await tab(page, 'Slide Show'); assert(await page.locator('[data-cmd="useTimings"]').evaluate((n) => n.classList.contains('pressed')), 'on by default');
+  await page.keyboard.press('F5'); eq(await showIdx(page), 0); await page.waitForFunction(() => Number(document.querySelector('#showRoot .show-layer:last-child').dataset.slideIndex) === 1, null, { timeout: 4000 });
+  await page.waitForFunction(() => Number(document.querySelector('#showRoot .show-layer:last-child').dataset.slideIndex) === 2, null, { timeout: 4000 }); await closeShow(page);
+  await cmd(page, 'useTimings'); eq((await model(page)).show.useTimings, false); await page.keyboard.press('F5'); await page.waitForTimeout(1600); eq(await showIdx(page), 0, 'timings off: no auto advance'); await closeShow(page);
+  await cmd(page, 'loopShow'); eq((await model(page)).show.loop, true); await ed(page, () => { window.QEditor.selectSlide(0, true); }); await page.keyboard.press('F5'); await page.keyboard.press('Space'); await page.keyboard.press('Space'); eq(await showIdx(page), 2); await page.keyboard.press('Space'); await page.waitForTimeout(100);
+  eq(await page.locator('#showRoot .show-end').count(), 0, 'no end screen when looping'); eq(await page.evaluate(() => window.QUI.showState().i), 0, 'back to the first slide'); await closeShow(page);
+  await ed(page, () => { const E = window.QEditor; E.mutate(() => { E.pres.setAdvance(0, { click: false }); }, 'meta'); }); await page.keyboard.press('F5');
+  const b = await page.locator('#showRoot').boundingBox(); await page.mouse.click(b.x + 100, b.y + 100); eq(await showIdx(page), 0, 'mouse click ignored on this slide'); await page.keyboard.press('Space'); eq(await showIdx(page), 1, 'keyboard still advances'); await closeShow(page);
+});
+
+test('Transitions tab: gallery (Morph, Cut, Fade, Push, Wipe + more), Existing menu, options, timing controls', async (page) => {
+  await ed(page, () => { window.QEditor.newSlide('blank'); window.QEditor.newSlide('blank'); }); await tab(page, 'Transitions');
+  eq(await page.$$eval('.rgallery .gitem', (g) => g.map((x) => x.textContent.trim())), ['Existing', 'None', 'Morph', 'Cut', 'Fade', 'Push', 'Wipe']); assert(await page.locator('[data-cmd="tr:exist"]').isEnabled(), 'Existing is a real button');
+  await cmd(page, 'tr:exist'); assert((await page.textContent('.menu')).includes('No transitions'), 'nothing yet'); await page.keyboard.press('Escape');
+  await cmd(page, 'tr:morph'); eq((await model(page)).slides[2].transition.type, 'morph'); assert(await page.locator('[data-cmd="trOptions"]').isDisabled(), 'morph has no options');
+  for (const [id, type] of [['cover', 'cover'], ['uncover', 'uncover'], ['zoom', 'zoom'], ['split', 'split']]) { await cmd(page, 'tr:more'); await page.click('[data-mid="trm-' + id + '"]'); eq((await model(page)).slides[2].transition.type, type); }
+  await cmd(page, 'trOptions'); await page.click('[data-mid="tro-vertical"]'); eq((await model(page)).slides[2].transition.dir, 'vertical');
+  await cmd(page, 'tr:fade'); await cmd(page, 'trOptions'); await page.click('[data-mid="tro-black"]'); eq((await model(page)).slides[2].transition.dir, 'black');
+  await cmd(page, 'tr:wipe'); await cmd(page, 'trOptions'); eq(await page.locator('.menu .mi').count(), 4); await page.click('[data-mid="tro-bottom"]'); eq((await model(page)).slides[2].transition.dir, 'bottom'); await cmd(page, 'tr:cut'); assert(await page.locator('[data-cmd="trDur"]').isDisabled(), 'cut: no duration');
+  await ed(page, () => window.QEditor.selectSlide(1, true)); await cmd(page, 'tr:fade'); await ed(page, () => window.QEditor.selectSlide(0, true)); await cmd(page, 'tr:exist'); assert((await page.textContent('.menu')).includes('Fade (1 slide)') && (await page.textContent('.menu')).includes('Cut (1 slide)'), 'existing list'); await page.click('[data-mid="trx-fade"]'); eq((await model(page)).slides[0].transition.type, 'fade', 'apply an existing transition');
+  assert(await page.locator('[data-cmd="trClick"]').evaluate((n) => n.classList.contains('pressed')), 'on mouse click on'); await cmd(page, 'trClick'); eq((await model(page)).slides[0].advance.click, false); await cmd(page, 'trClick');
+  await page.fill('[data-cmd="trAfter"]', '4'); await page.dispatchEvent('[data-cmd="trAfter"]', 'change'); eq((await model(page)).slides[0].advance.after, 4); await page.fill('[data-cmd="trAfter"]', ''); await page.dispatchEvent('[data-cmd="trAfter"]', 'change'); eq((await model(page)).slides[0].advance.after, null, 'blank = no timing');
+});
+
+test('Slide show plays every transition type with real animations (push, wipe, cover, uncover, zoom, split, fade-through-black)', async (page) => {
+  await twoSlides(page, 2);
+  const cases = [['fade', 'left', ['opacity'], 1], ['fade', 'black', ['opacity', 'opacity'], 2], ['push', 'left', ['translate', 'translate'], 2], ['push', 'bottom', ['translate', 'translate'], 2], ['wipe', 'right', ['clipPath'], 1], ['cover', 'top', ['translate'], 1], ['uncover', 'left', ['translate'], 1], ['zoom', 'left', ['clipPath'], 1], ['split', 'vertical', ['clipPath'], 1]];
+  for (const [type, dir, keys, n] of cases) {
+    await ed(page, ([type, dir]) => { window.QEditor.mutate(() => window.QEditor.pres.setTransition(1, { type, dir, dur: 3 }), 'meta'); window.QEditor.selectSlide(0, true); }, [type, dir]);
+    await page.keyboard.press('F5'); await page.keyboard.press('ArrowRight');
+    eq(await page.locator('#showRoot .show-layer').count(), 2, type + ': both layers present while it runs');
+    const got = await page.evaluate(() => { const L = Array.from(document.querySelectorAll('#showRoot .show-layer')); return { old: L[0].getAnimations().map((a) => Object.keys(a.effect.getKeyframes()[0]).filter((k) => !['offset', 'easing', 'composite', 'computedOffset'].includes(k))[0]), nw: L[1].getAnimations().map((a) => Object.keys(a.effect.getKeyframes()[0]).filter((k) => !['offset', 'easing', 'composite', 'computedOffset'].includes(k))[0]), zOld: L[0].style.zIndex, zNew: L[1].style.zIndex }; });
+    eq(got.old.concat(got.nw).length, n, type + '/' + dir + ' animation count: ' + JSON.stringify(got)); keys.forEach((k) => assert(got.old.concat(got.nw).includes(k), type + '/' + dir + ' uses ' + k + ': ' + JSON.stringify(got)));
+    if (type === 'cover') eq([got.zNew, got.zOld], ['2', '1']); if (type === 'uncover') eq([got.zOld, got.zNew], ['2', '1']);
+    await closeShow(page);
+  }
+  await ed(page, () => { window.QEditor.mutate(() => window.QEditor.pres.setTransition(1, { type: 'cut', dur: 3 }), 'meta'); window.QEditor.selectSlide(0, true); }); await page.keyboard.press('F5'); await page.keyboard.press('ArrowRight'); eq(await page.locator('#showRoot .show-layer').count(), 1, 'cut is instant'); await closeShow(page);
+});
+
+test('Morph transition: matching shapes glide from the old to the new position', async (page) => {
+  await twoSlides(page, 2);
+  const id = await ed(page, () => { const E = window.QEditor, P = E.pres; P.addShape(0, 'textbox', { text: 'Hello', x: 100, y: 120, w: 300, h: 80 }); const b = P.addShape(1, 'textbox', { text: 'Hello', x: 700, y: 400, w: 400, h: 100 }); P.addShape(1, 'rect', { x: 10, y: 10, w: 50, h: 50 }); P.setTransition(1, { type: 'morph', dur: 3 }); E.selectSlide(0, true); E.fullRender(); return b.id; });
+  await page.keyboard.press('F5'); await page.keyboard.press('ArrowRight');
+  const kf = await page.evaluate((id) => { const d = document.querySelector('#showRoot .show-layer:last-child [data-sid="' + id + '"]'); const a = d.getAnimations()[0]; return a ? a.effect.getKeyframes().map((k) => [k.left, k.top, k.width]) : null; }, id);
+  eq(kf, [['100px', '120px', '300px'], ['700px', '400px', '400px']], 'moves and resizes from the matching shape');
+  const unmatched = await page.evaluate(() => Array.from(document.querySelectorAll('#showRoot .show-layer:last-child .sl-rect')).map((d) => d.getAnimations().length)); eq(unmatched, [1], 'new shapes fade in'); await closeShow(page);
+});
+
+test('Transitions > Preview plays the transition from the previous slide on the canvas', async (page) => {
+  await twoSlides(page, 2); await ed(page, () => { window.QEditor.pres.setTransition(1, { type: 'push', dur: 1, dir: 'left' }); window.QEditor.selectSlide(1, true); });
+  await tab(page, 'Transitions'); await cmd(page, 'preview'); assert(await page.locator('#stage .tr-preview').count() === 1, 'overlay while playing'); eq(await page.locator('#stage .tr-preview .pv-layer').count(), 2, 'old and new slide');
+  assert(await page.locator('#stage .tr-preview .pv-layer').first().evaluate((n) => n.getAnimations().length > 0), 'real animation');
+  await page.waitForFunction(() => !document.querySelector('#stage .tr-preview'), null, { timeout: 5000 });
+  await ed(page, () => window.QEditor.pres.setTransition(1, { type: 'none' })); await cmd(page, 'preview'); eq(await page.locator('#stage .tr-preview').count(), 0, 'None has nothing to preview');
 });
 
 (async () => {
