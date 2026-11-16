@@ -1,0 +1,18 @@
+const {open}=require('./helpers');const fs=require('fs');
+(async()=>{const H=await open(),{pg,ok,fresh}=H,bs=async k=>pg.click(`#backstage [data-k=${k}]`),dl=async sel=>{const[d]=await Promise.all([pg.waitForEvent('download'),pg.click(sel)]);return{name:d.suggestedFilename(),text:fs.readFileSync(await d.path(),'utf8')}};
+await fresh('hello world');await pg.fill('#pageTitle','T1');
+await pg.click('[data-tab=File]');ok(await pg.$('#backstage')!==null,'backstage opens');
+await pg.fill('#bsName','Renamed');await pg.click('#bsRename');ok((await H.st()).nb.name==='Renamed'&&(await pg.textContent('#nbName'))==='Renamed','rename notebook');
+await bs('new');await pg.fill('#bsNewName','Second');await pg.click('#bsCreate');let s=await H.st();ok(s.nbs.length===2&&s.nb.name==='Second'&&await pg.$('#backstage')===null,'new notebook keeps the old one');
+await pg.click('[data-tab=File]');await bs('open');await pg.click('#backstage .nbrow:has-text("Renamed")');s=await H.st();ok(s.nb.name==='Renamed','open switches notebook');
+await pg.click('[data-tab=File]');await bs('backup');let d=await dl('#bsDl');let j=JSON.parse(d.text);ok(j.format==='quadra-onenote'&&j.notebook.name==='Renamed'&&d.name.endsWith('.json'),'backup json');
+await pg.click('#bsBack');await pg.click('[data-tab=File]');await bs('restore');let[fc]=await Promise.all([pg.waitForEvent('filechooser'),pg.click('#bsRestore')]);await fc.setFiles({name:'b.json',mimeType:'application/json',buffer:Buffer.from(d.text)});await pg.waitForFunction(()=>App.state.nbs.length===3);H.n++;
+await pg.click('[data-tab=File]');await bs('restore');[fc]=await Promise.all([pg.waitForEvent('filechooser'),pg.click('#bsRestore')]);await fc.setFiles({name:'bad.json',mimeType:'application/json',buffer:Buffer.from('{"nope":1}')});await pg.waitForTimeout(300);ok((await H.st()).nbs.length===3&&await pg.$eval('#dlg',e=>e.open&&e.textContent.includes('not a valid')),'invalid backup rejected');await pg.click('#dlgOk');await pg.click('#bsBack');
+await pg.click('[data-tab=File]');await bs('export');d=await dl('#bsTxtPage');ok(d.text.includes('T1')&&d.text.includes('hello world')&&d.name.endsWith('.txt'),'export page txt');
+d=await dl('#bsTxtSec');ok(d.text.includes('hello world'),'export section txt');d=await dl('#bsTxtNb');ok(d.text.includes('hello world'),'export notebook txt');
+await pg.click('#bsBack');await pg.click('[data-tab=File]');await bs('print');await pg.evaluate(()=>{window.print=()=>{window.__printed=1}});await pg.click('#bsPrint');ok(await pg.evaluate(()=>window.__printed===1),'print called');
+await pg.emulateMedia({media:'print'});ok(await pg.$eval('#ribbon',e=>getComputedStyle(e).display)==='none'&&await pg.$eval('#canvas',e=>getComputedStyle(e).display)!=='none'&&await pg.isVisible('.ed'),'print layout shows only the page');await pg.emulateMedia({media:'screen'});
+await pg.click('[data-tab=File]');await bs('options');await pg.selectOption('#bsTheme','dark');ok((await H.st()).theme==='dark','option theme');
+await pg.click('#bsSpell');ok((await H.st()).spell===false,'option spellcheck');await pg.selectOption('#bsZoom','150');ok(await pg.evaluate(()=>App.state.zoom===150&&document.getElementById('canvas').style.zoom==='1.5'),'option zoom');
+await bs('info');await pg.click('#bsDelete');await pg.click('#askOk');ok((await H.st()).nbs.length===2,'delete notebook');
+ok(H.errs.length===0,'no page errors: '+H.errs.join(';'));await H.close();console.log('file tests passed:',H.n)})().catch(e=>{console.error(e.message);process.exit(1)});
