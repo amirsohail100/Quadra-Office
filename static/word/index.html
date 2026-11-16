@@ -57,7 +57,7 @@
         <div class="stack">
           <button class="rs" data-cmd="cut" title="Cut (Ctrl+X)"><svg class="ico"><use href="#i-cut"/></svg><span>Cut</span></button>
           <button class="rs" data-cmd="copy" title="Copy (Ctrl+C)"><svg class="ico"><use href="#i-copy"/></svg><span>Copy</span></button>
-          <button class="rs" data-na="Format Painter"><svg class="ico"><use href="#i-brush"/></svg><span>Format Painter</span></button>
+          <button class="rs" data-cmd="format-painter" title="Format Painter: copy formatting from the selection, then select the text to apply it"><svg class="ico"><use href="#i-brush"/></svg><span>Format Painter</span></button>
         </div>
       </div>
       <div class="glabel">Clipboard</div>
@@ -131,13 +131,13 @@
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Dictate"><svg class="ico"><use href="#i-mic"/></svg><span>Dictate</span></button>
+        <button class="rb" data-cmd="dictate" title="Dictate: speak to type (Chrome or Edge)"><svg class="ico"><use href="#i-mic"/></svg><span>Dictate</span></button>
       </div>
       <div class="glabel">Voice</div>
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Editor"><svg class="ico"><use href="#i-spell"/></svg><span>Editor</span></button>
+        <button class="rb" data-cmd="editor" title="Editor: check spacing, punctuation and capital letters"><svg class="ico"><use href="#i-spell"/></svg><span>Editor</span></button>
       </div>
       <div class="glabel">Proofing</div>
     </div>
@@ -160,14 +160,14 @@
     <div class="group">
       <div class="btns">
         <button class="rb" data-cmd="picture"><svg class="ico"><use href="#i-picture"/></svg><span>Picture</span></button>
-        <button class="rb" data-na="Shapes"><svg class="ico"><use href="#i-share"/></svg><span>Shapes</span></button>
+        <button class="rb" data-menu="shapes"><svg class="ico"><use href="#i-share"/></svg><span>Shapes</span></button>
       </div>
       <div class="glabel">Illustrations</div>
     </div>
     <div class="group">
       <div class="btns">
         <button class="rb" data-cmd="link"><svg class="ico"><use href="#i-link"/></svg><span>Link</span></button>
-        <button class="rb" data-na="Bookmarks"><svg class="ico"><use href="#i-edit"/></svg><span>Bookmarks</span></button>
+        <button class="rb" data-cmd="bookmarks"><svg class="ico"><use href="#i-edit"/></svg><span>Bookmarks</span></button>
       </div>
       <div class="glabel">Links</div>
     </div>
@@ -179,13 +179,13 @@
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Online Video"><svg class="ico"><use href="#i-picture"/></svg><span>Online Video</span></button>
+        <button class="rb" data-cmd="video"><svg class="ico"><use href="#i-picture"/></svg><span>Online Video</span></button>
       </div>
       <div class="glabel">Media</div>
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="New Comment"><svg class="ico"><use href="#i-comment"/></svg><span>New Comment</span></button>
+        <button class="rb" data-cmd="comment"><svg class="ico"><use href="#i-comment"/></svg><span>New Comment</span></button>
       </div>
       <div class="glabel">Comments</div>
     </div>
@@ -198,7 +198,7 @@
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Equation"><svg class="ico"><use href="#i-hash"/></svg><span>Equation</span></button>
+        <button class="rb" data-cmd="equation"><svg class="ico"><use href="#i-hash"/></svg><span>Equation</span></button>
         <button class="rb" data-menu="symbol"><svg class="ico"><use href="#i-symbol"/></svg><span>Symbol</span></button>
       </div>
       <div class="glabel">Symbols</div>
@@ -233,7 +233,7 @@
       <div class="btns">
         <button class="rb" data-menu="watermark"><svg class="ico"><use href="#i-watermark"/></svg><span>Watermark</span></button>
         <button class="rb" data-cmd="page-color"><svg class="ico"><use href="#i-color"/></svg><span>Page Color</span></button>
-        <button class="rb" data-na="Page Borders"><svg class="ico"><use href="#i-page"/></svg><span>Page Borders</span></button>
+        <button class="rb" data-cmd="page-borders"><svg class="ico"><use href="#i-page"/></svg><span>Page Borders</span></button>
       </div>
       <div class="glabel">Page Background</div>
     </div>
@@ -248,7 +248,7 @@
         <button class="rb" data-menu="papersize"><svg class="ico"><use href="#i-page"/></svg><span>Size</span></button>
         <button class="rb" data-menu="columns"><svg class="ico"><use href="#i-columns"/></svg><span>Columns</span></button>
         <button class="rb" data-menu="breaks"><svg class="ico"><use href="#i-pagebreak"/></svg><span>Breaks</span></button>
-        <button class="rb" data-na="Line Numbers"><svg class="ico"><use href="#i-hash"/></svg><span>Line Numbers</span></button>
+        <button class="rb" data-menu="linenumbers"><svg class="ico"><use href="#i-hash"/></svg><span>Line Numbers</span></button>
       </div>
       <div class="glabel">Page Setup</div>
     </div>
@@ -269,7 +269,7 @@
     <div class="group">
       <div class="btns">
         <button class="rb" data-cmd="page-color"><svg class="ico"><use href="#i-color"/></svg><span>Page Color</span></button>
-        <button class="rb" data-na="Page Borders"><svg class="ico"><use href="#i-page"/></svg><span>Page Borders</span></button>
+        <button class="rb" data-cmd="page-borders"><svg class="ico"><use href="#i-page"/></svg><span>Page Borders</span></button>
       </div>
       <div class="glabel">Page Background</div>
     </div>
@@ -280,14 +280,14 @@
     <div class="group">
       <div class="btns">
         <button class="rb" data-cmd="toc"><svg class="ico"><use href="#i-toc"/></svg><span>Insert Table of Contents</span></button>
-        <button class="rb" data-na="Update Table of Contents"><svg class="ico"><use href="#i-history"/></svg><span>Update Table</span></button>
+        <button class="rb" data-cmd="toc-update"><svg class="ico"><use href="#i-history"/></svg><span>Update Table</span></button>
       </div>
       <div class="glabel">Table of Contents</div>
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Insert Footnote"><svg class="ico"><use href="#i-hash"/></svg><span>Insert Footnote</span></button>
-        <button class="rs" data-na="Insert Endnote"><svg class="ico"><use href="#i-hash"/></svg><span>Insert Endnote</span></button>
+        <button class="rb" data-cmd="footnote"><svg class="ico"><use href="#i-hash"/></svg><span>Insert Footnote</span></button>
+        <button class="rs" data-cmd="endnote"><svg class="ico"><use href="#i-hash"/></svg><span>Insert Endnote</span></button>
       </div>
       <div class="glabel">Footnotes</div>
     </div>
@@ -299,7 +299,7 @@
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Citations"><svg class="ico"><use href="#i-comment"/></svg><span>Citations</span></button>
+        <button class="rb" data-menu="citations"><svg class="ico"><use href="#i-comment"/></svg><span>Citations</span></button>
       </div>
       <div class="glabel">Citations &amp; Bibliography</div>
     </div>
@@ -309,27 +309,27 @@
   <div class="ribbon-panel" id="panel-mailings" data-panel="mailings" role="tabpanel" aria-labelledby="tab-mailings" hidden>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Envelopes"><svg class="ico"><use href="#i-envelope"/></svg><span>Envelopes</span></button>
-        <button class="rb" data-na="Labels"><svg class="ico"><use href="#i-label"/></svg><span>Labels</span></button>
+        <button class="rb" data-cmd="envelopes"><svg class="ico"><use href="#i-envelope"/></svg><span>Envelopes</span></button>
+        <button class="rb" data-cmd="labels"><svg class="ico"><use href="#i-label"/></svg><span>Labels</span></button>
       </div>
       <div class="glabel">Create</div>
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Start Mail Merge"><svg class="ico"><use href="#i-merge"/></svg><span>Start Mail Merge</span></button>
+        <button class="rb" data-cmd="merge-start"><svg class="ico"><use href="#i-merge"/></svg><span>Start Mail Merge</span></button>
       </div>
       <div class="glabel">Start Mail Merge</div>
     </div>
     <div class="group">
       <div class="btns">
         <button class="rb" data-menu="fields"><svg class="ico"><use href="#i-fields"/></svg><span>Insert Field</span></button>
-        <button class="rb" data-na="Preview Results"><svg class="ico"><use href="#i-view"/></svg><span>Preview Results</span></button>
+        <button class="rb" data-cmd="merge-preview"><svg class="ico"><use href="#i-view"/></svg><span>Preview Results</span></button>
       </div>
       <div class="glabel">Write &amp; Insert Fields</div>
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Finish &amp; Merge"><svg class="ico"><use href="#i-save"/></svg><span>Finish &amp; Merge</span></button>
+        <button class="rb" data-cmd="merge-finish"><svg class="ico"><use href="#i-save"/></svg><span>Finish &amp; Merge</span></button>
       </div>
       <div class="glabel">Finish</div>
     </div>
@@ -339,7 +339,7 @@
   <div class="ribbon-panel" id="panel-review" data-panel="review" role="tabpanel" aria-labelledby="tab-review" hidden>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Editor"><svg class="ico"><use href="#i-spell"/></svg><span>Editor</span></button>
+        <button class="rb" data-cmd="editor"><svg class="ico"><use href="#i-spell"/></svg><span>Editor</span></button>
         <button class="rb" data-na="Spelling dictionary"><svg class="ico"><use href="#i-spell"/></svg><span>Spelling &amp; Grammar</span></button>
         <button class="rb" data-cmd="word-count"><svg class="ico"><use href="#i-count"/></svg><span>Word Count</span></button>
       </div>
@@ -347,26 +347,26 @@
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Check Accessibility"><svg class="ico"><use href="#i-check"/></svg><span>Check Accessibility</span></button>
+        <button class="rb" data-cmd="accessibility"><svg class="ico"><use href="#i-check"/></svg><span>Check Accessibility</span></button>
       </div>
       <div class="glabel">Accessibility</div>
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Translate"><svg class="ico"><use href="#i-share"/></svg><span>Translate</span></button>
+        <button class="rb" data-cmd="translate"><svg class="ico"><use href="#i-share"/></svg><span>Translate</span></button>
       </div>
       <div class="glabel">Translate</div>
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="New Comment"><svg class="ico"><use href="#i-comment"/></svg><span>New Comment</span></button>
-        <button class="rb" data-na="Show Comments"><svg class="ico"><use href="#i-comment"/></svg><span>Show Comments</span></button>
+        <button class="rb" data-cmd="comment"><svg class="ico"><use href="#i-comment"/></svg><span>New Comment</span></button>
+        <button class="rb" data-cmd="show-comments"><svg class="ico"><use href="#i-comment"/></svg><span>Show Comments</span></button>
       </div>
       <div class="glabel">Comments</div>
     </div>
     <div class="group">
       <div class="btns">
-        <button class="rb" data-na="Track Changes"><svg class="ico"><use href="#i-track"/></svg><span>Track Changes</span></button>
+        <button class="rb" data-menu="tracking"><svg class="ico"><use href="#i-track"/></svg><span>Track Changes</span></button>
       </div>
       <div class="glabel">Tracking</div>
     </div>
@@ -378,7 +378,7 @@
       <div class="btns">
         <button class="rb" data-cmd="view-single" id="view-single" data-view-btn="single"><svg class="ico"><use href="#i-single"/></svg><span>One Page</span></button>
         <button class="rb" data-cmd="view-multi" id="view-multi" data-view-btn="multi"><svg class="ico"><use href="#i-multi"/></svg><span>Multiple Pages</span></button>
-        <button class="rb" data-na="Reading View"><svg class="ico"><use href="#i-view"/></svg><span>Reading View</span></button>
+        <button class="rb" data-cmd="reading"><svg class="ico"><use href="#i-view"/></svg><span>Reading View</span></button>
       </div>
       <div class="glabel">Document Views</div>
     </div>
@@ -411,8 +411,8 @@
     <div class="group">
       <div class="btns">
         <button class="rb" data-cmd="help"><svg class="ico"><use href="#i-help"/></svg><span>Help</span></button>
-        <button class="rb" data-na="Contact Support"><svg class="ico"><use href="#i-profile"/></svg><span>Contact Support</span></button>
-        <button class="rb" data-na="Feedback"><svg class="ico"><use href="#i-comment"/></svg><span>Feedback</span></button>
+        <button class="rb" data-cmd="support"><svg class="ico"><use href="#i-profile"/></svg><span>Contact Support</span></button>
+        <button class="rb" data-cmd="feedback"><svg class="ico"><use href="#i-comment"/></svg><span>Feedback</span></button>
         <button class="rb" data-cmd="shortcuts"><svg class="ico"><use href="#i-keyboard"/></svg><span>Keyboard Shortcuts</span></button>
         <button class="rb" data-cmd="whatsnew"><svg class="ico"><use href="#i-sun"/></svg><span>What's New</span></button>
       </div>
@@ -433,6 +433,7 @@
         <div class="hf hf-header" id="hf-header" hidden></div>
         <div class="watermark" id="watermark" hidden></div>
         <div id="doc-body" class="doc-body" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Document body" spellcheck="false"></div>
+        <div id="notes-area" class="notes-area" hidden></div>
         <div class="hf hf-footer" id="hf-footer" hidden></div>
       </div>
     </div>
@@ -475,6 +476,7 @@
 <input id="file-img" type="file" accept="image/*" hidden>
 <input id="color-page" type="color" value="#ffffff" hidden>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<button id="reading-exit" class="reading-exit" hidden>Exit reading view</button>
 
 <script src="engine.js"></script>
 <script src="script.js"></script>
