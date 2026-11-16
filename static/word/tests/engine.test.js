@@ -291,3 +291,359 @@ test('deserialize rejects garbage input', () => {
   assert.throws(() => E.deserialize('{"nope":1}'), /Invalid Quadra document/);
   assert.throws(() => E.deserialize({ blocks: [{ type: 'video' }], section: {} }), /Unknown block type/);
 });
+
+// ---------- round 4: Home and Insert features ----------
+
+test('editor reports double spaces, space before punctuation, missing space and lowercase sentence starts', () => {
+  const d = withText('hello  world .this is wrong.Next one');
+  const kinds = E.editorCheck(d).map((i) => i.kind);
+  assert.ok(kinds.includes('double-space'));
+  assert.ok(kinds.includes('space-before-punct'));
+  assert.ok(kinds.includes('missing-space'));
+  assert.ok(kinds.includes('sentence-start'));
+});
+
+test('editorFixAll repairs fixable issues and keeps the sentence text right', () => {
+  const d = withText('hello  world.this is wrong');
+  const n = E.editorFixAll(d);
+  assert.equal(E.paraText(d.blocks[0]), 'Hello world. This is wrong');
+  assert.ok(n >= 3);
+});
+
+test('editorFixAll leaves repeated words alone and reports them as a suggestion only', () => {
+  const d = withText('That that is it');
+  const issues = E.editorCheck(d);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].kind, 'repeated-word');
+  assert.equal(issues[0].fixable, false);
+  E.editorFixAll(d);
+  assert.equal(E.paraText(d.blocks[0]), 'That that is it');
+});
+
+test('editorFixAll keeps the formatting of the text it repairs', () => {
+  const d = withText('bold  text');
+  E.formatText(d.blocks[0], 0, 4, { b: true });
+  E.editorFixAll(d);
+  assert.equal(E.paraText(d.blocks[0]), 'Bold text');
+  assert.equal(d.blocks[0].runs[0].f.b, true);
+});
+
+test('equationRuns turns ^ into superscript, _ into subscript and names into symbols', () => {
+  const runs = E.equationRuns('x^2 + pi');
+  assert.deepEqual(runs, [{ t: 'x', f: {} }, { t: '2', f: { sup: true } }, { t: ' + π', f: {} }]);
+  const water = E.equationRuns('H_2O');
+  assert.deepEqual(water, [{ t: 'H', f: {} }, { t: '2', f: { sub: true } }, { t: 'O', f: {} }]);
+});
+
+test('equationRuns accepts braces for longer superscripts', () => {
+  assert.deepEqual(E.equationRuns('x^{10}'), [{ t: 'x', f: {} }, { t: '10', f: { sup: true } }]);
+});
+
+test('shapeDataUrl builds an svg for every shape and rejects unknown kinds', () => {
+  for (const kind of ['rectangle', 'ellipse', 'line', 'arrow', 'triangle', 'star']) {
+    const url = E.shapeDataUrl(kind);
+    assert.ok(url.startsWith('data:image/svg+xml;charset=utf-8,'), kind);
+    assert.ok(decodeURIComponent(url.split(',')[1]).startsWith('<svg'), kind);
+  }
+  assert.ok(decodeURIComponent(E.shapeDataUrl('ellipse').split(',')[1]).includes('<ellipse'));
+  assert.throws(() => E.shapeDataUrl('blob'), /Unknown shape/);
+});
+
+test('bookmark names are unique, validated and listed with their paragraph', () => {
+  const d = withText('intro text');
+  d.blocks.push(E.newPara('second'));
+  assert.equal(E.setBookmark(d, { b: 0 }, 'intro'), true);
+  assert.equal(E.setBookmark(d, { b: 1 }, 'intro'), true);
+  assert.equal(d.blocks[0].bm, undefined);
+  assert.equal(d.blocks[1].bm, 'intro');
+  assert.equal(E.setBookmark(d, { b: 0 }, '1abc'), false);
+  assert.equal(E.setBookmark(d, { b: 0 }, 'has space'), false);
+  assert.deepEqual(E.listBookmarks(d).map((x) => [x.name, x.a.b]), [['intro', 1]]);
+  E.removeBookmark(d, 'intro');
+  assert.equal(E.listBookmarks(d).length, 0);
+});
+
+test('splitParagraph does not copy a bookmark or comment into the new paragraph', () => {
+  const d = withText('abcdef');
+  E.setBookmark(d, { b: 0 }, 'mark');
+  const id = E.addComment(d, { b: 0 }, 'note');
+  E.splitParagraph(d, { b: 0 }, 3);
+  assert.equal(d.blocks[1].bm, undefined);
+  assert.equal(d.blocks[1].cm, undefined);
+  assert.deepEqual(d.blocks[0].cm, [id]);
+});
+
+test('comments attach to a paragraph and disappear with removeComment', () => {
+  const d = withText('review this sentence');
+  const id = E.addComment(d, { b: 0 }, '  check the wording  ');
+  assert.ok(id);
+  assert.equal(E.addComment(d, { b: 0 }, '   '), null);
+  const list = E.listComments(d);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].text, 'check the wording');
+  assert.equal(list[0].anchored, true);
+  E.removeComment(d, id);
+  assert.equal(E.listComments(d).length, 0);
+  assert.equal(d.blocks[0].cm, undefined);
+});
+
+test('a comment whose paragraph was merged away is still listed as not anchored', () => {
+  const d = withText('a');
+  d.blocks.push(E.newPara('b'));
+  E.addComment(d, { b: 1 }, 'second paragraph note');
+  E.deleteBackward(d, { b: 1 }, 0);
+  const list = E.listComments(d);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].anchored, false);
+});
+
+test('documents saved before round 4 load with empty comments', () => {
+  const old = { blocks: [{ type: 'p', runs: [{ t: 'x', f: {} }] }], section: {} };
+  const d = E.deserialize(old);
+  assert.deepEqual(d.comments, []);
+});
+
+// ---------- round 5: Design, Layout and References ----------
+
+test('footnote numbers follow document order, even when a note is inserted earlier', () => {
+  const d = withText('first part');
+  d.blocks.push(E.newPara('second part'));
+  const late = E.insertNote(d, { b: 1 }, 6, 'footnote', 'late note');
+  const early = E.insertNote(d, { b: 0 }, 5, 'footnote', 'early note');
+  assert.ok(late && early);
+  const labels = E.noteLabels(d);
+  assert.equal(labels[early.id], '1');
+  assert.equal(labels[late.id], '2');
+});
+
+test('endnotes use their own roman-numeral series', () => {
+  const d = withText('alpha beta');
+  const f = E.insertNote(d, { b: 0 }, 5, 'footnote', 'a footnote');
+  const e1 = E.insertNote(d, { b: 0 }, 10, 'endnote', 'an endnote');
+  const e2 = E.insertNote(d, { b: 0 }, 11, 'endnote', 'another endnote');
+  const labels = E.noteLabels(d);
+  assert.equal(labels[f.id], '1');
+  assert.equal(labels[e1.id], 'i');
+  assert.equal(labels[e2.id], 'ii');
+});
+
+test('note text can be changed and a note whose reference was deleted is not listed', () => {
+  const d = withText('see here');
+  const n = E.insertNote(d, { b: 0 }, 8, 'footnote', 'old text');
+  E.setNoteText(d, n.id, 'new text');
+  assert.equal(E.listNotes(d)[0].text, 'new text');
+  E.deleteBackward(d, { b: 0 }, n.o);   // removes the reference mark
+  assert.equal(E.listNotes(d).length, 0);
+});
+
+test('typing right after a note reference is not part of the reference', () => {
+  const d = withText('word');
+  const n = E.insertNote(d, { b: 0 }, 4, 'footnote', 'note');
+  E.insertText(d.blocks[0], n.o, 'x', null);
+  const last = d.blocks[0].runs[d.blocks[0].runs.length - 1];
+  assert.equal(last.t, 'x');
+  assert.equal(last.f.fn, undefined);
+});
+
+test('insertNote refuses empty note text', () => {
+  const d = withText('abc');
+  assert.equal(E.insertNote(d, { b: 0 }, 1, 'footnote', '   '), null);
+  assert.equal(d.footnotes.length, 0);
+});
+
+test('updateToc rebuilds the table of contents from the current headings', () => {
+  const d = withText('Chapter one');
+  d.blocks[0].style = 'Heading 1';
+  E.insertBlocks(d, { b: 0 }, 11, E.tocParas(d));
+  d.blocks.push(E.newPara('Body'));
+  d.blocks.push(E.newPara('Chapter two'));
+  d.blocks[d.blocks.length - 1].style = 'Heading 1';
+  assert.equal(E.updateToc(d), true);
+  const tocTexts = d.blocks.filter((b) => b.toc).map((b) => E.paraText(b));
+  assert.deepEqual(tocTexts, ['Chapter one', 'Chapter two']);
+});
+
+test('updateToc reports false when the document has no table of contents', () => {
+  const d = withText('no toc here');
+  assert.equal(E.updateToc(d), false);
+});
+
+test('toc paragraphs are marked, and splitting one does not copy the mark', () => {
+  const d = withText('Intro');
+  d.blocks[0].style = 'Heading 1';
+  const toc = E.tocParas(d);
+  assert.equal(toc[0].toc, true);
+  d.blocks.push(toc[0]);
+  E.splitParagraph(d, { b: 1 }, 2);
+  assert.equal(d.blocks[2].toc, undefined);
+});
+
+test('a column break is a block that can be inserted and saved', () => {
+  const d = withText('left');
+  E.insertBlocks(d, { b: 0 }, 4, [{ type: 'cb' }]);
+  assert.equal(d.blocks[1].type, 'cb');
+  const back = E.deserialize(E.serialize(d));
+  assert.equal(back.blocks[1].type, 'cb');
+});
+
+test('page border and line numbers are stored in the section', () => {
+  const d = E.createDoc();
+  E.setSection(d, { pageBorder: { style: 'double', width: 3, color: '#333333' }, lineNumbers: true });
+  const back = E.deserialize(E.serialize(d));
+  assert.deepEqual(back.section.pageBorder, { style: 'double', width: 3, color: '#333333' });
+  assert.equal(back.section.lineNumbers, true);
+});
+
+test('addSource needs an author or a title and citationText uses author and year', () => {
+  const d = E.createDoc();
+  assert.equal(E.addSource(d, { author: '', title: '', year: '2020' }), null);
+  const id = E.addSource(d, { author: 'Rao', title: 'Notes', year: '2020', publisher: 'Quadra Press' });
+  assert.ok(id);
+  assert.equal(E.citationText(E.listSources(d)[0]), '(Rao, 2020)');
+  E.removeSource(d, id);
+  assert.equal(E.listSources(d).length, 0);
+});
+
+test('bibliography is sorted by author and formatted with publisher and year', () => {
+  const d = E.createDoc();
+  E.addSource(d, { author: 'Zed', title: 'Last book', year: '2001', publisher: 'Pub A' });
+  E.addSource(d, { author: 'Abe', title: 'First book', year: '1999', publisher: '' });
+  const lines = E.bibliographyParas(d).map((p) => E.paraText(p));
+  assert.deepEqual(lines, ['Abe. First book. 1999.', 'Zed. Last book. Pub A, 2001.']);
+});
+
+test('HTML export shows note references as superscript labels', () => {
+  const d = withText('text');
+  E.insertNote(d, { b: 0 }, 4, 'footnote', 'note body');
+  const html = E.toHTML(d);
+  assert.ok(html.includes('<sup>1</sup>'));
+  assert.ok(html.includes('note body'));
+});
+
+// ---------- round 6: Mailings, Review, View and Help ----------
+
+test('tracked delete keeps the text but marks it deleted, and drops the reader own insertions', () => {
+  const d = withText('keep drop');
+  E.trackRangeDelete(d.blocks[0], 5, 9);
+  assert.equal(E.paraText(d.blocks[0]), 'keep drop');
+  const deleted = d.blocks[0].runs.find((r) => r.f.del);
+  assert.equal(deleted.t, 'drop');
+  // text inserted while tracking is removed for real when it is deleted again
+  const e = withText('');
+  E.insertText(e.blocks[0], 0, 'new', { ins: true });
+  E.trackRangeDelete(e.blocks[0], 0, 3);
+  assert.equal(E.paraText(e.blocks[0]), '');
+});
+
+test('accept all removes deleted text and clears insertion marks; reject all does the opposite', () => {
+  const d = withText('one two three');
+  E.trackRangeDelete(d.blocks[0], 4, 8);           // "two " deleted
+  E.insertText(d.blocks[0], 0, 'NEW ', { ins: true });
+  assert.deepEqual(E.countChanges(d), { inserted: 1, deleted: 1 });
+  const accepted = E.deserialize(E.serialize(d));
+  E.acceptAllChanges(accepted);
+  assert.equal(E.paraText(accepted.blocks[0]), 'NEW one three');
+  assert.equal(E.countChanges(accepted).inserted + E.countChanges(accepted).deleted, 0);
+  E.rejectAllChanges(d);
+  assert.equal(E.paraText(d.blocks[0]), 'one two three');
+  assert.equal(E.countChanges(d).inserted + E.countChanges(d).deleted, 0);
+});
+
+test('typing right after a deleted word does not inherit the deletion', () => {
+  const d = withText('abcd');
+  E.trackRangeDelete(d.blocks[0], 2, 4);
+  E.insertText(d.blocks[0], 2, 'X', {});
+  assert.equal(E.paraText(d.blocks[0]), 'abXcd');
+  const deleted = d.blocks[0].runs.filter((r) => r.f.del);
+  assert.equal(deleted.length, 1);
+  assert.equal(deleted[0].t, 'cd');
+});
+
+test('accessibility check reports missing headings, title, alt text and table header', () => {
+  const d = withText('A short note without any headings.');
+  E.insertBlocks(d, { b: 0 }, 33, [E.createTable(2, 2)]);
+  E.insertBlocks(d, { b: 0 }, 33, [{ type: 'img', src: 'data:image/png;base64,AA', w: 10, h: 10, align: 'left' }]);
+  d.title = 'Document 2';
+  const kinds = E.accessibilityCheck(d).map((i) => i.kind);
+  assert.ok(kinds.includes('no-headings'));
+  assert.ok(kinds.includes('image-no-alt'));
+  assert.ok(kinds.includes('table-no-header'));
+  assert.ok(kinds.includes('default-title'));
+});
+
+test('a document with headings, alt text and a real title has no accessibility issues', () => {
+  const d = withText('Title of the report');
+  d.blocks[0].style = 'Heading 1';
+  d.title = 'Quarterly report';
+  E.insertBlocks(d, { b: 0 }, 19, [{ type: 'img', src: 'data:image/png;base64,AA', w: 10, h: 10, align: 'left', alt: 'a chart' }]);
+  assert.deepEqual(E.accessibilityCheck(d), []);
+});
+
+test('setAlt stores alternative text for an image block', () => {
+  const d = withText('x');
+  E.insertBlocks(d, { b: 0 }, 1, [{ type: 'img', src: 'data:image/png;base64,AA', w: 10, h: 10, align: 'left' }]);
+  assert.equal(E.setAlt(d, 1, 'logo'), true);
+  assert.equal(d.blocks[1].alt, 'logo');
+  assert.equal(E.setAlt(d, 0, 'nope'), false);
+});
+
+test('parseCsv reads a header row, quoted commas and Windows line endings', () => {
+  const r = E.parseCsv('Name,City\r\n"Rao, A",Patna\r\nSita,"Delhi"\r\n');
+  assert.deepEqual(r.fields, ['Name', 'City']);
+  assert.deepEqual(r.records, [{ Name: 'Rao, A', City: 'Patna' }, { Name: 'Sita', City: 'Delhi' }]);
+});
+
+test('parseCsv rejects input with no records', () => {
+  assert.throws(() => E.parseCsv('Name,City\n'), /no records/i);
+  assert.throws(() => E.parseCsv(''), /no records/i);
+});
+
+test('mergeRecord replaces merge fields in text and tables and leaves the original alone', () => {
+  const d = withText('Dear «Name», welcome to «City».');
+  d.merge = { fields: ['Name', 'City'], records: [{ Name: 'Rao', City: 'Patna' }] };
+  E.insertBlocks(d, { b: 0 }, d.blocks[0].runs.reduce((n, r) => n + r.t.length, 0), [E.createTable(1, 1)]);
+  E.insertText(E.getPara(d, { b: 1, r: 0, c: 0 }), 0, '«City»', null);
+  const merged = E.mergeRecord(d, d.merge.records[0]);
+  assert.equal(E.paraText(merged.blocks[0]), 'Dear Rao, welcome to Patna.');
+  assert.equal(E.paraText(E.getPara(merged, { b: 1, r: 0, c: 0 })), 'Patna');
+  assert.equal(E.paraText(d.blocks[0]), 'Dear «Name», welcome to «City».');
+});
+
+test('mergeRecord leaves unknown placeholders and uses empty text for missing values', () => {
+  const d = withText('«Name» «Unknown» «Phone»');
+  d.merge = { fields: ['Name', 'Phone'], records: [{ Name: 'Rao' }] };
+  const merged = E.mergeRecord(d, { Name: 'Rao' });
+  assert.equal(E.paraText(merged.blocks[0]), 'Rao «Unknown» ');
+});
+
+test('mergeAllCombined puts a page break between records', () => {
+  const d = withText('Letter for «Name»');
+  d.merge = { fields: ['Name'], records: [{ Name: 'A' }, { Name: 'B' }] };
+  const all = E.mergeAllCombined(d);
+  assert.equal(all.blocks.filter((b) => b.type === 'pb').length, 1);
+  const texts = all.blocks.filter((b) => b.type === 'p').map((b) => E.paraText(b));
+  assert.deepEqual(texts, ['Letter for A', 'Letter for B']);
+});
+
+test('labelsTable fills a grid in reading order', () => {
+  const t = E.labelsTable(2, 2, ['one', 'two', 'three']);
+  assert.equal(t.rows.length, 2);
+  assert.equal(E.paraText(t.rows[0][0].paras[0]), 'one');
+  assert.equal(E.paraText(t.rows[0][1].paras[0]), 'two');
+  assert.equal(E.paraText(t.rows[1][0].paras[0]), 'three');
+  assert.equal(E.paraText(t.rows[1][1].paras[0]), '');
+});
+
+test('envelopeParas writes sender then recipient with a gap between', () => {
+  const lines = E.envelopeParas('Asha Rao\nPatna', 'Sita Devi\nDelhi').map((p) => E.paraText(p));
+  assert.deepEqual(lines, ['Asha Rao', 'Patna', '', 'Sita Devi', 'Delhi']);
+});
+
+test('HTML export marks inserted and deleted text', () => {
+  const d = withText('abc');
+  E.insertText(d.blocks[0], 3, 'Z', { ins: true });
+  E.trackRangeDelete(d.blocks[0], 0, 1);
+  const html = E.toHTML(d);
+  assert.ok(html.includes('<ins>'));
+  assert.ok(html.includes('<del>'));
+});
