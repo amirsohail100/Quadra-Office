@@ -442,6 +442,28 @@ class LayoutAndDesign(QuadraCase):
         self.assertIn("Georgia", self.page.evaluate("getComputedStyle(document.getElementById('sheet')).getPropertyValue('--doc-font')"))
 
 
+class RegressionRound3(QuadraCase):
+    """Bugs reported after the previous round. Each test seeds the state the user actually has."""
+
+    def test_legacy_saved_dark_canvas_does_not_stay_black_in_light_mode(self):
+        # An older build saved canvas:'dark'. Light mode must still show a light canvas.
+        self.ctx.add_init_script("localStorage.setItem('quadra.prefs.v1', JSON.stringify({theme:'light', canvas:'dark'}))")
+        self.page.reload()
+        self.page.wait_for_function("window.QuadraEditor && document.querySelectorAll('[role=tab]').length === 10")
+        bg = self.page.evaluate("getComputedStyle(document.getElementById('canvas')).backgroundColor")
+        self.assertEqual(bg, "rgb(201, 209, 218)")
+
+    def test_profile_panel_icons_are_reference_sized(self):
+        self.page.click("#btn-profile")
+        w = self.page.evaluate("document.querySelector('.menu.panel .pi .ico').getBoundingClientRect().width")
+        self.assertLessEqual(w, 17)
+
+    def test_apps_launcher_icon_tiles_are_reference_sized(self):
+        self.page.click("#btn-launcher")
+        w = self.page.evaluate("document.querySelector('.app-ico').getBoundingClientRect().width")
+        self.assertLessEqual(w, 32)
+
+
 class ProfileAndApps(QuadraCase):
     def test_profile_panel_shows_name_and_local_profile(self):
         self.page.click("#btn-profile")
@@ -531,6 +553,519 @@ class CanvasAndTyping(QuadraCase):
         self.assertEqual(before, "kept")
         self.assertEqual(after, "kept")
         self.assertEqual(self.texts(), ["first", "second more"])
+
+
+class HomeAndInsertFeatures(QuadraCase):
+    """Round 4: every button on the Home and Insert tabs does something real."""
+
+    def test_format_painter_copies_bold_and_applies_to_next_selection(self):
+        self.focus_body()
+        self.type_("Plain text")
+        self.page.keyboard.press("Enter")
+        self.type_("Bold text")
+        self.page.keyboard.down("Shift")
+        for _ in range(9):
+            self.page.keyboard.press("ArrowLeft")    # select "Bold text" in paragraph 2
+        self.page.keyboard.up("Shift")
+        self.page.keyboard.press("Control+b")
+        self.tab("home")
+        self.page.keyboard.press("Control+End")       # caret at the end of "Bold text"
+        self.page.keyboard.down("Shift")
+        for _ in range(9):
+            self.page.keyboard.press("ArrowLeft")    # select "Bold text" again: the painter source
+        self.page.keyboard.up("Shift")
+        self.page.click("[data-cmd=format-painter]")
+        self.assertTrue(self.page.evaluate("window.QuadraEditor.painterArmed()"))
+        self.page.keyboard.press("Control+Home")     # collapse to the start of "Plain text"
+        self.assertTrue(self.page.evaluate("window.QuadraEditor.painterArmed()"))  # a caret does not use it
+        self.page.keyboard.down("Shift")
+        for _ in range(5):
+            self.page.keyboard.press("ArrowRight")  # select "Plain"
+        self.page.keyboard.up("Shift")               # releasing Shift ends the selection gesture
+        self.assertFalse(self.page.evaluate("window.QuadraEditor.painterArmed()"))
+        first = self.paras()[0]["runs"]
+        self.assertEqual(first[0]["t"], "Plain")
+        self.assertTrue(first[0]["f"].get("b"))
+        self.assertFalse(first[1]["f"].get("b"))
+        self.assertEqual(self.texts(), ["Plain text", "Bold text"])
+
+    def test_format_painter_button_shows_pressed_state_and_toggles_off(self):
+        self.focus_body()
+        self.type_("abc")
+        self.tab("home")
+        self.page.click("[data-cmd=format-painter]")
+        self.assertEqual(self.page.get_attribute("[data-cmd=format-painter] >> nth=0", "aria-pressed"), "true")
+        self.page.click("[data-cmd=format-painter] >> nth=0")
+        self.assertEqual(self.page.get_attribute("[data-cmd=format-painter] >> nth=0", "aria-pressed"), "false")
+
+    def test_dictate_without_browser_support_says_so_and_changes_nothing(self):
+        self.ctx.add_init_script("window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined;")
+        self.page.reload()
+        self.page.wait_for_function("window.QuadraEditor && document.querySelectorAll('[role=tab]').length === 10")
+        self.focus_body()
+        self.type_("keep")
+        self.tab("home")
+        self.page.click("[data-cmd=dictate]")
+        self.assertIn("not available here", self.page.inner_text("#dlg-title"))
+        self.page.click("#dlg-actions button")
+        self.assertEqual(self.texts(), ["keep"])
+
+    def test_dictate_types_recognised_speech_into_the_model(self):
+        self.ctx.add_init_script("""
+          window.SpeechRecognition = class {
+            start() { this._on = true; setTimeout(() => {
+              this.onresult({ resultIndex: 0, results: [ { 0: { transcript: 'hello there' }, isFinal: true, length: 1 } ] });
+            }, 30); }
+            stop() { setTimeout(() => this.onend && this.onend(), 10); }
+          };""")
+        self.page.reload()
+        self.page.wait_for_function("window.QuadraEditor && document.querySelectorAll('[role=tab]').length === 10")
+        self.focus_body()
+        self.tab("home")
+        self.page.click("[data-cmd=dictate]")
+        self.assertEqual(self.page.get_attribute("[data-cmd=dictate]", "aria-pressed"), "true")
+        self.page.wait_for_function("window.QuadraEditor.getDoc().blocks[0].runs.map(r=>r.t).join('').includes('hello there')")
+        self.assertIn("hello there", self.texts()[0])
+
+    def test_editor_lists_problems_and_fix_all_repairs_the_text(self):
+        self.focus_body()
+        self.type_("hello  world.this is wrong")
+        self.tab("home")
+        self.page.click("[data-cmd=editor]")
+        body = self.page.inner_text("#dlg-body")
+        self.assertIn("suggestion", body)
+        self.assertIn("More than one space", body)
+        self.page.click("#dlg-actions button.primary")
+        self.assertEqual(self.texts(), ["Hello world. This is wrong"])
+
+    def test_editor_reports_clean_text_with_no_suggestions(self):
+        self.focus_body()
+        self.type_("This is clean text.")
+        self.tab("home")
+        self.page.click("[data-cmd=editor]")
+        self.assertIn("No suggestions", self.page.inner_text("#dlg-body"))
+        self.assertEqual(self.page.locator("#dlg-actions button:has-text('Fix all')").count(), 0)
+
+    def test_shapes_menu_inserts_an_svg_image_block(self):
+        self.focus_body()
+        self.tab("insert")
+        self.page.click("[data-menu=shapes]")
+        self.page.locator(".menu-item:has-text('Ellipse')").click()
+        img = [b for b in self.doc()["blocks"] if b["type"] == "img"][0]
+        self.assertTrue(img["src"].startswith("data:image/svg+xml"))
+        self.assertIn("ellipse", img["src"])
+        self.assertEqual(self.page.locator("#doc-body .blk-img img").count(), 1)
+
+    def test_bookmark_is_added_listed_and_reachable(self):
+        self.focus_body()
+        self.type_("Intro paragraph")
+        self.page.keyboard.press("Enter")
+        self.type_("Second paragraph")
+        self.page.keyboard.press("Control+Home")     # caret on paragraph 1
+        self.tab("insert")
+        self.page.click("[data-cmd=bookmarks]")
+        self.page.fill("#dlg input[type=text]", "intro")
+        self.page.click("#dlg-actions button:has-text('Add')")
+        self.page.wait_for_function("window.QuadraEditor.getDoc().blocks[0].bm === 'intro'")
+        self.assertIn("intro (paragraph 1)", self.page.inner_text("#dlg-body"))
+        self.page.fill("#dlg input[type=text]", "1bad")
+        self.page.click("#dlg-actions button:has-text('Add')")
+        self.assertIn("Start with a letter", self.page.inner_text("#dlg-body"))
+        self.page.click("#dlg-actions button:has-text('Close')")
+        self.page.keyboard.press("Control+End")       # caret now on paragraph 2
+        self.page.wait_for_function("window.QuadraEditor.caretKey() === '1'")
+        self.tab("insert")
+        self.page.click("[data-cmd=bookmarks]")
+        self.page.click("#dlg-body button:has-text('Go to')")
+        self.assertEqual(self.page.evaluate("window.QuadraEditor.caretKey()"), "0")
+
+    def test_online_video_inserts_label_and_link(self):
+        self.focus_body()
+        self.tab("insert")
+        self.page.click("[data-cmd=video]")
+        self.page.fill("#dlg input[type=url]", "https://example.com/watch?v=1")
+        self.page.click("#dlg-actions button.primary")
+        self.assertEqual(self.texts(), ["Video: https://example.com/watch?v=1"])
+        link_runs = [r for r in self.paras()[0]["runs"] if r["f"].get("link")]
+        self.assertEqual(link_runs[0]["f"]["link"], "https://example.com/watch?v=1")
+
+    def test_online_video_rejects_non_web_address(self):
+        self.focus_body()
+        self.tab("insert")
+        self.page.click("[data-cmd=video]")
+        self.page.fill("#dlg input[type=url]", "javascript:alert(1)")
+        self.page.click("#dlg-actions button.primary")
+        self.assertIn("starts with https://", self.page.inner_text("#dlg-body"))
+        self.assertEqual(self.texts(), [""])
+
+    def test_new_comment_marks_paragraph_lists_and_deletes(self):
+        self.focus_body()
+        self.type_("Review this line")
+        self.tab("insert")
+        self.page.click("[data-cmd=comment]")
+        self.page.fill("#dlg textarea", "Check the wording")
+        self.page.click("#dlg-actions button:has-text('Add comment')")
+        self.assertEqual(len(self.doc()["comments"]), 1)
+        self.assertEqual(self.page.locator("#doc-body .para.cmt").count(), 1)
+        self.assertIn("Check the wording", self.page.inner_text("#dlg-body"))
+        self.page.click("#dlg-body button:has-text('Delete')")
+        self.assertEqual(self.doc()["comments"], [])
+        self.assertEqual(self.page.locator("#doc-body .para.cmt").count(), 0)
+
+    def test_equation_inserts_superscript_and_symbol(self):
+        self.focus_body()
+        self.tab("insert")
+        self.page.click("[data-cmd=equation]")
+        self.page.fill("#dlg input[type=text]", "x^2 + pi")
+        self.assertEqual(self.page.locator("#dlg .eq-preview sup").inner_text(), "2")
+        self.page.click("#dlg-actions button.primary")
+        runs = self.paras()[0]["runs"]
+        self.assertEqual(runs[1], {"t": "2", "f": {"sup": True}})
+        self.assertIn("π", "".join(r["t"] for r in runs))
+        supers = self.page.evaluate("Array.from(document.querySelectorAll('#doc-body span')).filter(s => s.style.verticalAlign === 'super').length")
+        self.assertEqual(supers, 1)
+
+class DesignLayoutReferences(QuadraCase):
+    """Round 5: Page Borders, Line Numbers, Column Break, Update Table, Footnote, Endnote, Citations."""
+
+    def test_page_borders_dialog_draws_border_on_the_sheet_and_saves_it(self):
+        self.tab("design")
+        self.page.click("[data-cmd=page-borders] >> nth=0")
+        self.page.select_option("#dlg select[aria-label='Border style']", "double")
+        self.page.select_option("#dlg select[aria-label='Border width']", "3")
+        self.page.click("#dlg-actions button.primary")
+        self.assertEqual(self.doc()["section"]["pageBorder"]["style"], "double")
+        self.assertEqual(self.page.evaluate("getComputedStyle(document.getElementById('sheet')).borderTopStyle"), "double")
+        self.assertEqual(self.page.evaluate("getComputedStyle(document.getElementById('sheet')).borderTopWidth"), "3px")
+
+    def test_page_borders_from_layout_tab_can_remove_the_border(self):
+        self.tab("layout")
+        self.page.click("[data-cmd=page-borders] >> nth=1")
+        self.page.select_option("#dlg select[aria-label='Border style']", "single")
+        self.page.click("#dlg-actions button.primary")
+        self.assertEqual(self.page.evaluate("getComputedStyle(document.getElementById('sheet')).borderTopStyle"), "solid")
+        self.tab("layout")
+        self.page.click("[data-cmd=page-borders] >> nth=1")
+        self.page.select_option("#dlg select[aria-label='Border style']", "none")
+        self.page.click("#dlg-actions button.primary")
+        self.assertEqual(self.page.evaluate("getComputedStyle(document.getElementById('sheet')).borderTopStyle"), "none")
+
+    def test_line_numbers_continuous_numbers_the_paragraphs(self):
+        self.focus_body()
+        self.type_("first")
+        self.page.keyboard.press("Enter")
+        self.type_("second")
+        self.tab("layout")
+        self.page.click("[data-menu=linenumbers]")
+        self.page.locator(".menu-item:has-text('Continuous')").click()
+        self.assertTrue(self.doc()["section"]["lineNumbers"])
+        self.assertTrue(self.page.evaluate("document.getElementById('doc-body').classList.contains('lines')"))
+        # Chrome reports counter-based content unevaluated, so check the rule is applied to every paragraph.
+        content = self.page.evaluate("getComputedStyle(document.querySelectorAll('#doc-body .para')[1], '::after').content")
+        self.assertEqual(content, "counter(ln)")
+
+    def test_column_break_inserts_a_block_and_a_visible_marker(self):
+        self.focus_body()
+        self.type_("left column")
+        self.tab("layout")
+        self.page.click("[data-menu=breaks]")
+        self.page.locator(".menu-item:has-text('Column Break')").click()
+        self.assertIn("cb", [b["type"] for b in self.doc()["blocks"]])
+        self.assertEqual(self.page.locator("#doc-body .cbreak").count(), 1)
+
+    def test_update_table_of_contents_rebuilds_the_entries(self):
+        self.focus_body()
+        self.type_("One")
+        self.page.click("[data-cmd=style][data-value='Heading 1']")
+        self.page.keyboard.press("Enter")
+        self.tab("references")
+        self.page.click("#panel-references [data-cmd=toc]")
+        self.type_("Two")
+        self.tab("home")
+        self.page.click("[data-cmd=style][data-value='Heading 1']")
+        self.tab("references")
+        self.page.click("[data-cmd=toc-update]")
+        toc = [b for b in self.doc()["blocks"] if b.get("toc")]
+        self.assertEqual(["".join(r["t"] for r in b["runs"]) for b in toc], ["One", "Two"])
+
+    def test_update_table_without_a_table_explains_it(self):
+        self.focus_body()
+        self.type_("plain text")
+        self.tab("references")
+        self.page.click("[data-cmd=toc-update]")
+        self.assertIn("No table of contents", self.page.inner_text("#dlg-title"))
+
+    def test_footnote_adds_reference_mark_and_lists_the_note(self):
+        self.focus_body()
+        self.type_("Claim here")
+        self.tab("references")
+        self.page.click("[data-cmd=footnote]")
+        self.page.fill("#dlg textarea", "Source text")
+        self.page.click("#dlg-actions button.primary")
+        self.assertEqual(self.doc()["footnotes"][0]["text"], "Source text")
+        self.assertTrue(any(r["f"].get("fn") for r in self.paras()[0]["runs"]))
+        self.assertEqual(self.page.locator("#doc-body .fnref").get_attribute("data-label"), "1")
+        self.assertIn("Source text", self.page.inner_text("#notes-area"))
+
+    def test_endnote_uses_roman_numerals(self):
+        self.focus_body()
+        self.type_("End here")
+        self.tab("references")
+        self.page.click("[data-cmd=endnote]")
+        self.page.fill("#dlg textarea", "Last word")
+        self.page.click("#dlg-actions button.primary")
+        self.assertEqual(self.page.locator("#doc-body .fnref").get_attribute("data-label"), "i")
+        self.assertIn("Endnotes", self.page.inner_text("#notes-area"))
+
+    def test_clicking_a_note_number_edits_its_text(self):
+        self.focus_body()
+        self.type_("Claim")
+        self.tab("references")
+        self.page.click("[data-cmd=footnote]")
+        self.page.fill("#dlg textarea", "Old text")
+        self.page.click("#dlg-actions button.primary")
+        self.page.click("#doc-body .fnref")
+        self.assertEqual(self.page.input_value("#dlg textarea"), "Old text")
+        self.page.fill("#dlg textarea", "New text")
+        self.page.click("#dlg-actions button.primary")
+        self.assertEqual(self.doc()["footnotes"][0]["text"], "New text")
+        self.assertIn("New text", self.page.inner_text("#notes-area"))
+
+    def test_citations_add_source_cite_it_and_insert_bibliography(self):
+        self.focus_body()
+        self.type_("As shown ")
+        self.tab("references")
+        self.page.click("[data-menu=citations]")
+        self.page.locator(".menu-item:has-text('Manage sources')").click()
+        self.page.fill("#dlg input[aria-label='Author']", "Rao")
+        self.page.fill("#dlg input[aria-label='Title']", "Notes")
+        self.page.fill("#dlg input[aria-label='Year']", "2020")
+        self.page.click("#dlg-actions button:has-text('Add source')")
+        self.assertIn("Rao (2020)", self.page.inner_text("#dlg-body"))
+        self.page.click("#dlg-actions button:has-text('Close')")
+        self.tab("references")
+        self.page.click("[data-menu=citations]")
+        self.page.locator(".menu-item:has-text('Cite (Rao, 2020)')").click()
+        self.assertIn("(Rao, 2020)", self.texts()[0])
+        self.tab("references")
+        self.page.click("[data-menu=citations]")
+        self.page.locator(".menu-item:has-text('Insert bibliography')").click()
+        self.assertIn("Rao. Notes. 2020.", self.texts())
+
+
+class MailingsReviewViewHelp(QuadraCase):
+    """Round 6: tracked changes, accessibility, translate, comments list, reading view, support, feedback, mail merge."""
+
+    def _tracking_on(self):
+        self.tab("review")
+        self.page.click("[data-menu=tracking]")
+        self.page.locator(".menu-item:has-text('Turn on Track Changes')").click()
+
+    def test_track_changes_marks_typed_text_as_inserted_and_underlines_it(self):
+        self._tracking_on()
+        self.focus_body()
+        self.type_("added words")
+        runs = self.paras()[0]["runs"]
+        self.assertTrue(runs[0]["f"].get("ins"))
+        deco = self.page.evaluate("getComputedStyle(document.querySelector('#doc-body span')).textDecorationLine")
+        self.assertIn("underline", deco)
+
+    def test_backspace_while_tracking_keeps_the_text_and_marks_it_deleted(self):
+        self.focus_body()
+        self.type_("keep drop")
+        self._tracking_on()
+        self.focus_body()
+        self.page.keyboard.press("End")
+        for _ in range(4):
+            self.page.keyboard.press("Backspace")
+        self.assertEqual(self.texts(), ["keep drop"])
+        deleted = [r for r in self.paras()[0]["runs"] if r["f"].get("del")]
+        self.assertEqual(deleted[0]["t"], "drop")
+        self.assertEqual(self.page.evaluate("getComputedStyle(document.querySelector('#doc-body span')).textDecorationLine"), "line-through")
+
+    def test_accept_all_removes_deleted_text(self):
+        self.focus_body()
+        self.type_("keep drop")
+        self._tracking_on()
+        self.focus_body()
+        self.page.keyboard.press("End")
+        for _ in range(4):
+            self.page.keyboard.press("Backspace")
+        self.tab("review")
+        self.page.click("[data-menu=tracking]")
+        self.page.locator(".menu-item:has-text('Accept All Changes')").click()
+        self.assertEqual(self.texts(), ["keep "])
+
+    def test_reject_all_brings_back_deleted_text_and_drops_insertions(self):
+        self.focus_body()
+        self.type_("keep drop")
+        self._tracking_on()
+        self.focus_body()
+        self.page.keyboard.press("End")
+        for _ in range(4):
+            self.page.keyboard.press("Backspace")
+        self.type_("NEW")
+        self.tab("review")
+        self.page.click("[data-menu=tracking]")
+        self.page.locator(".menu-item:has-text('Reject All Changes')").click()
+        self.assertEqual(self.texts(), ["keep drop"])
+
+    def test_track_changes_button_shows_pressed_state(self):
+        self.tab("review")
+        self.page.click("[data-menu=tracking]")
+        self.page.locator(".menu-item:has-text('Turn on Track Changes')").click()
+        self.page.wait_for_function("document.querySelector('[data-menu=tracking]').getAttribute('aria-pressed') === 'true'")
+
+    def test_accessibility_check_lists_missing_headings(self):
+        self.focus_body()
+        self.type_("A body paragraph with no heading at all.")
+        self.tab("review")
+        self.page.click("[data-cmd=accessibility]")
+        self.assertIn("headings", self.page.inner_text("#dlg-body"))
+
+    def test_clicking_a_picture_sets_its_alternative_text(self):
+        tmp = pathlib.Path(tempfile.mkdtemp()) / "pixel.png"
+        tmp.write_bytes(PNG_1X1)
+        self.focus_body()
+        self.page.set_input_files("#file-img", str(tmp))
+        self.page.wait_for_function("window.QuadraEditor.getDoc().blocks.some(b => b.type === 'img')")
+        self.page.click("#doc-body .blk-img img")
+        self.page.fill("#dlg input[type=text]", "a red dot")
+        self.page.click("#dlg-actions button.primary")
+        img = [b for b in self.doc()["blocks"] if b["type"] == "img"][0]
+        self.assertEqual(img["alt"], "a red dot")
+
+    def test_translate_opens_google_translate_with_the_text_and_target_language(self):
+        self.ctx.add_init_script("window.__opened = []; window.open = (u) => { window.__opened.push(u); return null; };")
+        self.page.reload()
+        self.page.wait_for_function("window.QuadraEditor && document.querySelectorAll('[role=tab]').length === 10")
+        self.focus_body()
+        self.type_("good morning")
+        self.tab("review")
+        self.page.click("[data-cmd=translate]")
+        self.page.select_option("#dlg select", "hi")
+        self.page.click("#dlg-actions button.primary")
+        opened = self.page.evaluate("window.__opened[0]")
+        self.assertIn("translate.google.com", opened)
+        self.assertIn("tl=hi", opened)
+        self.assertIn("good%20morning", opened)
+
+    def test_show_comments_lists_comments_from_the_document(self):
+        self.focus_body()
+        self.type_("Please check this")
+        self.tab("insert")
+        self.page.click("[data-cmd=comment]")
+        self.page.fill("#dlg textarea", "needs a source")
+        self.page.click("#dlg-actions button:has-text('Add comment')")
+        self.page.click("#dlg-actions button:has-text('Close')")
+        self.tab("review")
+        self.page.click("[data-cmd=show-comments]")
+        self.assertIn("needs a source", self.page.inner_text("#dlg-body"))
+        self.assertIn("Comments (1)", self.page.inner_text("#dlg-title"))
+
+    def test_reading_view_hides_ribbon_and_stops_editing_until_escape(self):
+        self.focus_body()
+        self.type_("read me")
+        self.tab("view")
+        self.page.click("[data-cmd=reading]")
+        self.assertTrue(self.page.evaluate("document.body.classList.contains('reading')"))
+        self.assertFalse(self.page.locator("#ribbon").is_visible())
+        self.assertEqual(self.page.get_attribute("#doc-body", "contenteditable"), "false")
+        self.page.keyboard.press("Escape")
+        self.assertFalse(self.page.evaluate("document.body.classList.contains('reading')"))
+        self.assertTrue(self.page.locator("#ribbon").is_visible())
+        self.assertEqual(self.page.get_attribute("#doc-body", "contenteditable"), "true")
+
+    def test_multiple_pages_draws_page_guides_at_the_real_page_height(self):
+        self.tab("view")
+        self.page.click("#view-multi")
+        self.assertTrue(self.page.evaluate("document.getElementById('sheet').classList.contains('view-multi')"))
+        bg = self.page.evaluate("getComputedStyle(document.getElementById('sheet')).backgroundImage")
+        self.assertIn("repeating-linear-gradient", bg)
+        self.assertTrue(self.page.evaluate("document.getElementById('sheet').style.getPropertyValue('--page-h')").endswith("px"))
+
+    def test_contact_support_shows_diagnostics_and_copy_button(self):
+        self.tab("help")
+        self.page.click("[data-cmd=support]")
+        body = self.page.inner_text("#dlg-body")
+        self.assertIn("Quadra Word v1", body)
+        self.assertIn("Browser:", body)
+        self.assertEqual(self.page.locator("#dlg-body button:has-text('Copy details')").count(), 1)
+
+    def test_feedback_is_saved_in_this_browser(self):
+        self.tab("help")
+        self.page.click("[data-cmd=feedback]")
+        self.page.select_option("#dlg select", "Bug")
+        self.page.fill("#dlg textarea", "the zoom box is slow")
+        self.page.click("#dlg-actions button:has-text('Save')")
+        stored = json.loads(self.page.evaluate("localStorage.getItem('quadra.feedback.v1')"))
+        self.assertEqual(stored[0]["type"], "Bug")
+        self.assertEqual(stored[0]["text"], "the zoom box is slow")
+
+    def test_envelopes_insert_sender_and_recipient_lines(self):
+        self.focus_body()
+        self.tab("mailings")
+        self.page.click("[data-cmd=envelopes]")
+        self.page.fill("#dlg textarea[aria-label='Sender address']", "Asha Rao\nPatna")
+        self.page.fill("#dlg textarea[aria-label='Recipient address']", "Sita Devi\nDelhi")
+        self.page.click("#dlg-actions button.primary")
+        texts = self.texts()
+        self.assertIn("Asha Rao", texts)
+        self.assertIn("Sita Devi", texts)
+        self.assertIn("Delhi", texts)
+
+    def test_labels_insert_a_grid_table_with_the_texts_in_order(self):
+        self.focus_body()
+        self.tab("mailings")
+        self.page.click("[data-cmd=labels]")
+        self.page.fill("#dlg textarea", "A\nB\nC")
+        self.page.click("#dlg-actions button.primary")
+        tbl = [b for b in self.doc()["blocks"] if b["type"] == "table"][0]
+        self.assertEqual(len(tbl["rows"]), 3)
+        self.assertEqual(len(tbl["rows"][0]), 2)
+        self.assertEqual("".join(r["t"] for r in tbl["rows"][0][1]["paras"][0]["runs"]), "B")
+        self.assertEqual("".join(r["t"] for r in tbl["rows"][1][0]["paras"][0]["runs"]), "C")
+
+    def test_mail_merge_fields_preview_and_finish_write_the_letters(self):
+        self.focus_body()
+        self.tab("mailings")
+        self.page.click("[data-cmd=merge-start]")
+        self.page.fill("#dlg textarea", "Name,City\nAsha Rao,Patna\nSita Devi,Delhi")
+        self.page.click("#dlg-actions button.primary")
+        self.assertEqual(self.doc()["merge"]["fields"], ["Name", "City"])
+        self.page.click("[data-menu=fields]")
+        self.assertEqual(self.page.locator(".menu-item:has-text('City')").count(), 1)
+        self.page.keyboard.press("Escape")
+        self.focus_body()
+        self.type_("Dear ")
+        self.page.click("[data-menu=fields]")
+        self.page.locator(".menu-item:has-text('Name')").click()
+        self.type_(", welcome.")
+        self.tab("mailings")
+        self.page.click("[data-cmd=merge-preview]")
+        self.assertIn("Asha Rao", self.page.get_attribute("#dlg iframe", "srcdoc"))
+        self.page.click("#dlg-actions button.primary")
+        with self.page.expect_download() as dl:
+            self.page.click("[data-cmd=merge-finish]")
+        content = pathlib.Path(dl.value.path()).read_text(encoding="utf-8")
+        self.assertIn("Dear Asha Rao, welcome.", content)
+        self.assertIn("Dear Sita Devi, welcome.", content)
+
+
+class CaretAfterDialog(QuadraCase):
+    def test_caret_move_right_after_closing_a_dialog_is_not_overridden(self):
+        self.focus_body()
+        self.type_("first line")
+        self.page.keyboard.press("Enter")
+        self.type_("second line")
+        self.page.keyboard.press("Control+Home")
+        self.page.wait_for_function("window.QuadraEditor.caretKey() === '0'")
+        self.tab("insert")
+        self.page.click("[data-cmd=bookmarks]")
+        self.page.click("#dlg-actions button:has-text('Close')")
+        self.page.keyboard.press("Control+End")      # immediately after closing
+        self.page.keyboard.type("!")
+        self.assertEqual(self.texts(), ["first line", "second line!"])
 
 
 class ZoomThemeView(QuadraCase):
