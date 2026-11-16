@@ -5,3 +5,9 @@ t(()=>assert.equal(E.search(nb,'hello').length,1));t(()=>assert.equal(E.search(n
 t(()=>{E.snapshot(p);E.addText(p,0,0,'x');E.restore(p,0);assert.equal(p.items.length,1)});
 t(()=>{assert.ok(E.removeItem(p,p.items[0].id));assert.equal(p.items.length,0)});
 console.log('model tests passed:',n);
+(()=>{let m=0;const ok=(c)=>{assert.ok(c);m++};const nb=E.create('X'),p=nb.sections[0].pages[0];p.title='Ttl';
+E.addText(p,0,0,'a<br>b <input type="checkbox" checked>done');E.addFile(p,0,0,{name:'f.txt',size:2,mime:'text/plain',data:'data:,hi',kind:'file'});E.addAudio(p,0,0,'data:audio/webm;base64,AA','rec');
+ok(E.toText('x<br>y</div>z&nbsp;&amp;&lt;').split('\n').length===3);ok(E.pageToText(p).includes('[x] done')&&E.pageToText(p).includes('f.txt'));
+ok(E.sectionToText(nb.sections[0]).includes('Ttl')&&E.notebookToText(nb).includes('X'));ok(E.search(nb,'f.txt').length===1);
+ok(E.importNotebook({format:'quadra-onenote',version:1,notebook:nb}).name==='X');ok(E.importNotebook(JSON.parse(JSON.stringify(nb))).sections.length===1);
+assert.throws(()=>E.importNotebook({nope:1}));assert.throws(()=>E.importNotebook({sections:[{pages:5}]}));console.log('model v0.4 tests passed:',m)})();
