@@ -25,8 +25,8 @@
   const MARGIN_PRESETS = { Normal: 72, Narrow: 36, Wide: 108 };
   const STYLE_NAMES = ['Normal', 'Title', 'Heading 1', 'Heading 2', 'Heading 3'];
   const HEADING_LEVEL = { Title: 0, 'Heading 1': 1, 'Heading 2': 2, 'Heading 3': 3 };
-  const BLOCK_TYPES = ['p', 'img', 'pb', 'table'];
-  const MARK_KEYS = ['b', 'i', 'u', 's', 'sup', 'sub', 'font', 'size', 'color', 'hl', 'link'];
+  const BLOCK_TYPES = ['p', 'img', 'pb', 'cb', 'table'];
+  const MARK_KEYS = ['b', 'i', 'u', 's', 'sup', 'sub', 'font', 'size', 'color', 'hl', 'link', 'fn', 'ins', 'del'];
 
   const clone = (x) => JSON.parse(JSON.stringify(x));
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -83,6 +83,9 @@
       section: { size: 'A4', orientation: 'portrait', margins: { top: 72, right: 72, bottom: 72, left: 72 }, columns: 1, pageColor: 'auto' },
       header: '', footer: '', pageNumber: null, watermark: '',
       theme: { font: '', accent: '' },
+      comments: [],
+      footnotes: [],
+      sources: [],
       blocks: [newPara()],
     };
   }
@@ -168,6 +171,9 @@
   }
   function insertText(p, o, text, patch) {
     const f = applyPatch(Object.assign({}, fmtBefore(p, o)), patch);
+    delete f.fn;     // a note reference does not grow when you type after it
+    delete f.link;   // nor does a link
+    delete f.del;    // nor does a tracked deletion
     return insertRaw(p, o, text, f);
   }
   function deleteText(p, a, b) {
@@ -236,7 +242,13 @@
     else if (next.type === 'img' || next.type === 'pb') doc.blocks.splice(a.b + 1, 1);
     return { a, o };
   }
-  function cloneProps(p) { return clone(Object.assign({}, p, { runs: [] })); }
+  function cloneProps(p) {
+    const c = Object.assign({}, p, { runs: [] });
+    delete c.bm;   // a bookmark belongs to one paragraph only
+    delete c.cm;   // comments belong to the paragraph they were added to
+    delete c.toc;  // a new paragraph is not part of the table of contents
+    return clone(c);
+  }
   // Enter key. Empty list item leaves the list. Headings continue as Normal.
   function splitParagraph(doc, a, o) {
     const p = getPara(doc, a);
@@ -390,7 +402,7 @@
   function wordCount(doc) {
     let words = 0, chars = 0, charsNoSpaces = 0, paragraphs = 0;
     forEachPara(doc, (p) => {
-      const t = paraText(p);
+      const t = paraText(p).replace(/\u2060/g, '');
       words += t.split(/\s+/).filter(Boolean).length;
       chars += t.length;
       charsNoSpaces += t.replace(/\s/g, '').length;
@@ -400,9 +412,10 @@
   }
   function plainText(doc) {
     return doc.blocks.map((blk) => {
-      if (blk.type === 'p') return paraText(blk);
+      if (blk.type === 'p') return paraText(blk).replace(/\u2060/g, '');
       if (blk.type === 'table') return blk.rows.map((row) => row.filter((c) => !c.covered).map((c) => paraText(c.paras[0])).join('\t')).join('\n');
       if (blk.type === 'pb') return '\f';
+      if (blk.type === 'cb') return '';
       return '';
     }).join('\n');
   }
@@ -415,7 +428,17 @@
     });
     return out;
   }
-  function tocParas(doc) { return outline(doc).map((o) => newPara(o.text, { indent: o.level * 18, after: 2 })); }
+  function tocParas(doc) { return outline(doc).map((o) => newPara(o.text, { indent: o.level * 18, after: 2, toc: true })); }
+  // Rebuilds the table of contents in place. Returns false when there is none.
+  function updateToc(doc) {
+    const b = doc.blocks.findIndex((blk) => blk.type === 'p' && blk.toc);
+    if (b < 0) return false;
+    let end = b;
+    while (end < doc.blocks.length && doc.blocks[end].type === 'p' && doc.blocks[end].toc) end++;
+    doc.blocks.splice(b, end - b, ...tocParas(doc));
+    if (!doc.blocks.length) doc.blocks.push(newPara());
+    return true;
+  }
 
   // ---------- tables ----------
   function adjacentCell(doc, a, dir) {
@@ -479,9 +502,365 @@
     return true;
   }
 
+
+  // ---------- editor (spelling-style checks that are rule based, not a dictionary) ----------
+  // Each rule finds positions inside one paragraph's plain text.
+  const EDITOR_RULES = [
+    { kind: 'double-space', msg: 'More than one space in a row', fixable: true,
+      find(t) { const out = []; const re = /\S( {2,})\S/g; let m; while ((m = re.exec(t))) out.push({ o: m.index + 1, len: m[1].length, rep: ' ' }); return out; } },
+    { kind: 'space-before-punct', msg: 'Space before punctuation', fixable: true,
+      find(t) { const out = []; const re = /\S( +)[,.;:!?]/g; let m; while ((m = re.exec(t))) out.push({ o: m.index + 1, len: m[1].length, rep: '' }); return out; } },
+    { kind: 'missing-space', msg: 'No space after punctuation', fixable: true,
+      find(t) { const out = []; const re = /[A-Za-z]{2,}[,;:!?.][A-Za-z]{2,}/g; let m; while ((m = re.exec(t))) { const cut = m[0].search(/[,;:!?.][A-Za-z]/) + 1; out.push({ o: m.index + cut, len: 0, rep: ' ' }); } return out; } },
+    { kind: 'sentence-start', msg: 'Sentence starts with a small letter', fixable: true,
+      find(t) { const out = []; const re = /(^\s*|[.!?]\s+)([a-z])/g; let m; while ((m = re.exec(t))) out.push({ o: m.index + m[1].length, len: 1, rep: m[2].toUpperCase() }); return out; } },
+    { kind: 'repeated-word', msg: 'Word repeated (check if it is intended)', fixable: false,
+      find(t) { const out = []; const re = /\b([A-Za-z]+) +\1\b/gi; let m; while ((m = re.exec(t))) out.push({ o: m.index, len: m[0].length, rep: m[1] }); return out; } },
+  ];
+  function editorCheck(doc) {
+    const out = [];
+    forEachPara(doc, (p, a) => {
+      const t = paraText(p);
+      for (const rule of EDITOR_RULES) {
+        for (const hit of rule.find(t)) {
+          out.push({ a: Object.assign({}, a), o: hit.o, len: hit.len, rep: hit.rep, kind: rule.kind, msg: rule.msg, fixable: rule.fixable, excerpt: t.slice(Math.max(0, hit.o - 15), hit.o + 25) });
+        }
+      }
+    });
+    return out;
+  }
+  // Repairs every fixable issue, one at a time from the end of the document, so offsets stay valid.
+  function editorFixAll(doc) {
+    let fixed = 0;
+    for (let guard = 0; guard < 10000; guard++) {
+      const fixable = editorCheck(doc).filter((i) => i.fixable);
+      if (!fixable.length) break;
+      const last = fixable.reduce((best, i) => {
+        const c = cmpAddr(i.a, best.a);
+        return c > 0 || (c === 0 && i.o > best.o) ? i : best;
+      });
+      const p = getPara(doc, last.a);
+      replaceOne(doc, { a: last.a, o: last.o, len: last.len }, last.rep);
+      if (!p) break;
+      fixed++;
+    }
+    return fixed;
+  }
+
+  // ---------- equation (plain text with ^ and _ and a few names) ----------
+  const SYMBOLS = { pi: 'π', alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', theta: 'θ', lambda: 'λ', mu: 'μ', sigma: 'σ', omega: 'ω',
+    Delta: 'Δ', sum: '∑', infinity: '∞', inf: '∞', sqrt: '√', pm: '±', times: '×', div: '÷', neq: '≠', leq: '≤', geq: '≥', approx: '≈', to: '→' };
+  const OPS = { '<=': '≤', '>=': '≥', '!=': '≠', '+-': '±', '->': '→', '*': '×' };
+  function equationRuns(src) {
+    const runs = [];
+    let plain = '';
+    const flush = () => {
+      if (!plain) return;
+      let t = plain.replace(/\b[A-Za-z]+\b/g, (w) => (SYMBOLS[w] !== undefined ? SYMBOLS[w] : w));
+      t = t.split(/(<=|>=|!=|\+-|->|\*)/).map((part) => (OPS[part] !== undefined ? OPS[part] : part)).join('');
+      runs.push({ t, f: {} });
+      plain = '';
+    };
+    for (let i = 0; i < src.length; i++) {
+      const ch = src[i];
+      if (ch === '^' || ch === '_') {
+        flush();
+        let body = '';
+        if (src[i + 1] === '{') {
+          const end = src.indexOf('}', i + 2);
+          body = end < 0 ? src.slice(i + 2) : src.slice(i + 2, end);
+          i = end < 0 ? src.length : end;
+        } else if (i + 1 < src.length) {
+          body = src[i + 1];
+          i += 1;
+        }
+        if (body) runs.push({ t: body, f: ch === '^' ? { sup: true } : { sub: true } });
+      } else {
+        plain += ch;
+      }
+    }
+    flush();
+    const p = newPara();
+    p.runs = runs;
+    return normalize(p).runs;
+  }
+
+  // ---------- shapes (inserted as svg images) ----------
+  function shapeSvg(kind, w, h) {
+    const W = w || 200, H = h || 120;
+    const stroke = 'stroke="#0e7c86" stroke-width="3" fill="#cfe9ea"';
+    const mid = H / 2;
+    let body;
+    switch (kind) {
+      case 'rectangle': body = `<rect x="4" y="4" width="${W - 8}" height="${H - 8}" rx="6" ${stroke}/>`; break;
+      case 'ellipse': body = `<ellipse cx="${W / 2}" cy="${H / 2}" rx="${(W - 8) / 2}" ry="${(H - 8) / 2}" ${stroke}/>`; break;
+      case 'line': body = `<line x1="4" y1="${mid}" x2="${W - 4}" y2="${mid}" stroke="#0e7c86" stroke-width="3"/>`; break;
+      case 'arrow': body = `<line x1="4" y1="${mid}" x2="${W - 18}" y2="${mid}" stroke="#0e7c86" stroke-width="3"/>` +
+        `<polygon points="${W - 4},${mid} ${W - 18},${mid - 8} ${W - 18},${mid + 8}" fill="#0e7c86"/>`; break;
+      case 'triangle': body = `<polygon points="${W / 2},4 ${W - 4},${H - 4} 4,${H - 4}" ${stroke}/>`; break;
+      case 'star': {
+        const R = Math.min(W, H) / 2 - 4, r = R * 0.45, pts = [];
+        for (let k = 0; k < 10; k++) {
+          const ang = -Math.PI / 2 + (k * Math.PI) / 5, rad = k % 2 ? r : R;
+          pts.push((W / 2 + rad * Math.cos(ang)).toFixed(1) + ',' + (H / 2 + rad * Math.sin(ang)).toFixed(1));
+        }
+        body = `<polygon points="${pts.join(' ')}" ${stroke}/>`;
+        break;
+      }
+      default: throw new Error('Unknown shape: ' + kind);
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${body}</svg>`;
+  }
+  function shapeDataUrl(kind, w, h) {
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(shapeSvg(kind, w, h));
+  }
+
+  // ---------- bookmarks (a name on one paragraph) ----------
+  const BOOKMARK_RE = /^[A-Za-z][A-Za-z0-9_]{0,39}$/;
+  function setBookmark(doc, a, name) {
+    if (!BOOKMARK_RE.test(name || '')) return false;
+    const p = getPara(doc, a);
+    if (!p) return false;
+    forEachPara(doc, (q) => { if (q.bm === name) delete q.bm; });
+    p.bm = name;
+    return true;
+  }
+  function removeBookmark(doc, name) {
+    forEachPara(doc, (q) => { if (q.bm === name) delete q.bm; });
+  }
+  function listBookmarks(doc) {
+    const out = [];
+    forEachPara(doc, (q, a) => { if (q.bm) out.push({ name: q.bm, a: Object.assign({}, a) }); });
+    return out;
+  }
+
+  // ---------- comments (text attached to a paragraph) ----------
+  function addComment(doc, a, text) {
+    const t = String(text || '').trim();
+    const p = getPara(doc, a);
+    if (!t || !p) return null;
+    const id = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    doc.comments.push({ id, text: t, date: new Date().toISOString(), excerpt: paraText(p).slice(0, 60) });
+    p.cm = (p.cm || []).concat(id);
+    return id;
+  }
+  function removeComment(doc, id) {
+    doc.comments = doc.comments.filter((c) => c.id !== id);
+    forEachPara(doc, (q) => {
+      if (q.cm) { q.cm = q.cm.filter((x) => x !== id); if (!q.cm.length) delete q.cm; }
+    });
+  }
+  function listComments(doc) {
+    const anchored = new Set();
+    forEachPara(doc, (q) => (q.cm || []).forEach((id) => anchored.add(id)));
+    return doc.comments.map((c) => Object.assign({}, c, { anchored: anchored.has(c.id) }));
+  }
+
+
+  // ---------- footnotes and endnotes ----------
+  // The reference is one invisible character (word joiner) carrying the mark fn = note id.
+  // Numbers are not stored: they follow the order of the references in the document.
+  const NOTE_MARK = '\u2060';
+  const roman = (n) => ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x'][n - 1] || String(n);
+  function insertNote(doc, a, o, kind, text) {
+    const t = String(text || '').trim();
+    const p = getPara(doc, a);
+    if (!p || !t || (kind !== 'footnote' && kind !== 'endnote')) return null;
+    const id = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const at = Math.min(Math.max(0, o), paraLen(p));
+    const newOff = insertRaw(p, at, NOTE_MARK, { fn: id });
+    doc.footnotes.push({ id, kind, text: t });
+    return { id, o: newOff };
+  }
+  function setNoteText(doc, id, text) {
+    const n = doc.footnotes.find((x) => x.id === id);
+    const t = String(text || '').trim();
+    if (!n || !t) return false;
+    n.text = t;
+    return true;
+  }
+  // Each reference, in document order, gets the next number of its own series.
+  function noteLabels(doc) {
+    const labels = {};
+    const count = { footnote: 0, endnote: 0 };
+    const kindOf = {};
+    (doc.footnotes || []).forEach((n) => { kindOf[n.id] = n.kind; });
+    forEachPara(doc, (p) => {
+      for (const r of p.runs) {
+        if (!r.f.fn || labels[r.f.fn] !== undefined) continue;
+        const kind = kindOf[r.f.fn] || 'footnote';
+        count[kind]++;
+        labels[r.f.fn] = kind === 'endnote' ? roman(count.endnote) : String(count.footnote);
+      }
+    });
+    return labels;
+  }
+  // Notes that still have a reference in the text, footnotes first, each in reference order.
+  function listNotes(doc) {
+    const labels = noteLabels(doc);
+    const out = [];
+    for (const kind of ['footnote', 'endnote']) {
+      Object.keys(labels).forEach((id) => {
+        const n = doc.footnotes.find((x) => x.id === id);
+        if (n && n.kind === kind) out.push({ id, kind, label: labels[id], text: n.text });
+      });
+    }
+    return out;
+  }
+
+  // ---------- sources and citations ----------
+  function addSource(doc, src) {
+    const s = { author: String(src.author || '').trim(), title: String(src.title || '').trim(),
+      year: String(src.year || '').trim(), publisher: String(src.publisher || '').trim() };
+    if (!s.author && !s.title) return null;
+    s.id = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    doc.sources.push(s);
+    return s.id;
+  }
+  function removeSource(doc, id) { doc.sources = doc.sources.filter((s) => s.id !== id); }
+  function listSources(doc) { return doc.sources.slice(); }
+  function citationText(src) { return '(' + (src.author || src.title) + ', ' + (src.year || 'n.d.') + ')'; }
+  function bibliographyParas(doc) {
+    const byAuthor = doc.sources.slice().sort((x, y) => (x.author || x.title).localeCompare(y.author || y.title));
+    return byAuthor.map((s) => {
+      const parts = [];
+      if (s.author) parts.push(s.author + '.');
+      if (s.title) parts.push(s.title + '.');
+      const tail = [s.publisher, s.year || 'n.d.'].filter(Boolean).join(', ');
+      parts.push(tail + '.');
+      return newPara(parts.join(' '));
+    });
+  }
+
+
+  // ---------- tracked changes ----------
+  // Deleting while tracking keeps the text and marks it del. Text that was itself inserted while tracking is removed.
+  function trackRangeDelete(p, a, b) {
+    const len = paraLen(p);
+    const from = Math.max(0, Math.min(a, len));
+    const to = Math.max(from, Math.min(b, len));
+    if (to <= from) return;
+    const out = runsSlice(p.runs, 0, from);
+    for (const r of runsSlice(p.runs, from, to)) {
+      if (r.f.ins) continue;
+      out.push({ t: r.t, f: Object.assign({}, r.f, { del: true }) });
+    }
+    out.push(...runsSlice(p.runs, to, len));
+    setRuns(p, out);
+  }
+  function countChanges(doc) {
+    let inserted = 0, deleted = 0;
+    forEachPara(doc, (p) => { for (const r of p.runs) { if (r.f.ins) inserted++; if (r.f.del) deleted++; } });
+    return { inserted, deleted };
+  }
+  function acceptAllChanges(doc) {
+    forEachPara(doc, (p) => {
+      setRuns(p, p.runs.filter((r) => !r.f.del).map((r) => ({ t: r.t, f: Object.assign({}, r.f, { ins: undefined }) })));
+    });
+  }
+  function rejectAllChanges(doc) {
+    forEachPara(doc, (p) => {
+      setRuns(p, p.runs.filter((r) => !r.f.ins).map((r) => ({ t: r.t, f: Object.assign({}, r.f, { del: undefined }) })));
+    });
+  }
+
+  // ---------- accessibility check (read only) ----------
+  function accessibilityCheck(doc) {
+    const issues = [];
+    const hasHeading = doc.blocks.some((b) => b.type === 'p' && HEADING_LEVEL[b.style] !== undefined && paraText(b).trim());
+    const hasText = doc.blocks.some((b) => b.type === 'p' && paraText(b).trim());
+    if (!hasHeading && hasText) issues.push({ kind: 'no-headings', msg: 'Add headings so screen readers can move through the document.' });
+    if (!doc.title || /^Document \d+$/.test(doc.title.trim())) issues.push({ kind: 'default-title', msg: 'Give the document a name instead of the default title.' });
+    doc.blocks.forEach((b, i) => {
+      if (b.type === 'img' && !(b.alt && String(b.alt).trim())) issues.push({ kind: 'image-no-alt', msg: 'Picture ' + (i + 1) + ' has no alternative text.', b: i });
+      if (b.type === 'table') {
+        const first = b.rows[0] || [];
+        if (first.every((c) => c.covered || !paraText(c.paras[0]).trim())) issues.push({ kind: 'table-no-header', msg: 'Table ' + (i + 1) + ' has an empty first row; use it for column headings.', b: i });
+      }
+    });
+    const empty = doc.blocks.filter((b) => b.type === 'p' && !paraText(b).trim()).length;
+    if (empty >= 5) issues.push({ kind: 'empty-paragraphs', msg: empty + ' empty paragraphs. Use spacing settings instead of blank lines.' });
+    return issues;
+  }
+  function setAlt(doc, b, alt) {
+    const blk = doc.blocks[b];
+    if (!blk || blk.type !== 'img') return false;
+    blk.alt = String(alt || '').trim();
+    return true;
+  }
+
+  // ---------- mail merge ----------
+  // CSV: first row is the field names. Quoted values may contain commas. Windows line endings are accepted.
+  function parseCsv(text) {
+    const s = String(text || '');
+    const rows = [];
+    let row = [], cell = '', quoted = false;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (quoted) {
+        if (ch === '"') { if (s[i + 1] === '"') { cell += '"'; i++; } else quoted = false; }
+        else cell += ch;
+      } else if (ch === '"') quoted = true;
+      else if (ch === ',') { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && s[i + 1] === '\n') i++;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += ch;
+    }
+    if (cell.length || row.length) { row.push(cell); rows.push(row); }
+    const clean = rows.filter((r) => r.some((c) => c.trim() !== ''));
+    if (!clean.length) throw new Error('No records found in the data');
+    const fields = clean[0].map((f) => f.trim());
+    if (fields.some((f) => !f)) throw new Error('Every column needs a name in the first row');
+    const records = clean.slice(1).map((r) => {
+      const o = {};
+      fields.forEach((f, i) => { o[f] = (r[i] || '').trim(); });
+      return o;
+    });
+    if (!records.length) throw new Error('No records found in the data');
+    return { fields, records };
+  }
+  // Returns a copy of the document with «Field» replaced by the record's value.
+  function mergeRecord(doc, rec) {
+    const out = JSON.parse(JSON.stringify(doc));
+    const fields = (doc.merge && doc.merge.fields) || [];
+    const fill = (text) => text.replace(/«([^»]+)»/g, (m, name) => (fields.includes(name) ? (rec[name] != null ? String(rec[name]) : '') : m));
+    forEachPara(out, (p) => { p.runs.forEach((r) => { r.t = fill(r.t); }); normalize(p); });
+    return out;
+  }
+  // One document with every record, a page break between them.
+  function mergeAllCombined(doc) {
+    const recs = (doc.merge && doc.merge.records) || [];
+    const out = deserialize(serialize(doc));
+    out.blocks = [];
+    recs.forEach((rec, i) => {
+      if (i > 0) out.blocks.push({ type: 'pb' });
+      out.blocks.push(...mergeRecord(doc, rec).blocks);
+    });
+    if (!out.blocks.length) out.blocks.push(newPara());
+    return out;
+  }
+
+  // ---------- labels and envelopes ----------
+  function labelsTable(rows, cols, texts) {
+    const t = createTable(rows, cols);
+    let i = 0;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const txt = texts[i++];
+      if (txt) insertText(t.rows[r][c].paras[0], 0, txt, null);
+    }
+    return t;
+  }
+  function envelopeParas(sender, recipient) {
+    const lines = (t) => String(t || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    return [...lines(sender).map((l) => newPara(l)), newPara(''), ...lines(recipient).map((l) => newPara(l))];
+  }
+
   // ---------- export ----------
+  let htmlNoteLabels = {};
   function runHTML(r) {
     const f = r.f || {};
+    if (f.fn) return '<sup>' + esc(htmlNoteLabels[f.fn] || '') + '</sup>';
     let t = esc(r.t).replace(/\n/g, '<br>');
     const css = [];
     if (f.font) css.push('font-family:' + esc(f.font));
@@ -494,6 +873,8 @@
     if (f.i) t = '<em>' + t + '</em>';
     if (f.sup) t = '<sup>' + t + '</sup>';
     if (f.sub) t = '<sub>' + t + '</sub>';
+    if (f.ins) t = '<ins>' + t + '</ins>';
+    if (f.del) t = '<del>' + t + '</del>';
     if (f.link) t = '<a href="' + esc(f.link) + '">' + t + '</a>';
     return css.length ? '<span style="' + css.join(';') + '">' + t + '</span>' : t;
   }
@@ -511,6 +892,7 @@
   }
   function toHTML(doc) {
     const s = doc.section, m = s.margins, sz = pageSize(s);
+    htmlNoteLabels = noteLabels(doc);
     const parts = [];
     let open = null;
     const close = () => { if (open) { parts.push(open === 'number' ? '</ol>' : '</ul>'); open = null; } };
@@ -527,6 +909,10 @@
       else if (blk.type === 'table') parts.push(tableHTML(blk));
     }
     close();
+    const notes = listNotes(doc);
+    if (notes.length) {
+      parts.push('<ol class="notes">' + notes.map((n) => '<li value="' + esc(n.label) + '">' + esc(n.text) + '</li>').join('') + '</ol>');
+    }
     const css = `@page{size:${s.size} ${s.orientation};margin:${m.top}pt ${m.right}pt ${m.bottom}pt ${m.left}pt}` +
       `body{font-family:Arial,sans-serif;font-size:12pt;max-width:${sz.w - m.left - m.right}pt;margin:0 auto}` +
       'table{border-collapse:collapse}td{border:1px solid #888;padding:4px}';
@@ -563,6 +949,9 @@
     d.pageNumber = d.pageNumber || null;
     d.watermark = d.watermark || '';
     d.theme = Object.assign({ font: '', accent: '' }, d.theme);
+    d.comments = Array.isArray(d.comments) ? d.comments : [];
+    d.footnotes = Array.isArray(d.footnotes) ? d.footnotes : [];
+    d.sources = Array.isArray(d.sources) ? d.sources : [];
     d.v = 1;
     return d;
   }
@@ -579,5 +968,11 @@
     forEachPara, findAll, replaceOne, replaceAll, wordCount, plainText, outline, tocParas,
     adjacentCell, insertRow, insertColumn, deleteTable, mergeCells,
     toHTML, serialize, deserialize,
+    editorCheck, editorFixAll, equationRuns, shapeSvg, shapeDataUrl,
+    setBookmark, removeBookmark, listBookmarks, addComment, removeComment, listComments,
+    insertNote, setNoteText, noteLabels, listNotes, updateToc,
+    addSource, removeSource, listSources, citationText, bibliographyParas, NOTE_MARK,
+    trackRangeDelete, countChanges, acceptAllChanges, rejectAllChanges,
+    accessibilityCheck, setAlt, parseCsv, mergeRecord, mergeAllCombined, labelsTable, envelopeParas,
   };
 });
