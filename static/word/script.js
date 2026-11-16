@@ -21,6 +21,8 @@
   let lastAt = 0;
   let clip = null;             // internal clipboard: { text, frags }
   let composing = false;
+  let tracking = false;        // Track Changes: typing is marked inserted, deleting is marked deleted
+  let painter = null;          // { marks, para } copied by Format Painter, applied to the next selection
   let els = {};                // addrKey -> DOM element
   let body = null;
 
@@ -33,8 +35,18 @@
   function mk(tag, cls) { const el = document.createElement(tag); if (cls) el.className = cls; return el; }
 
   // ---------- rendering ----------
+  let labelMap = {};   // note id -> label ("1", "i"), recomputed on every render
   function runNode(r) {
     const f = r.f || {};
+    if (f.fn) {
+      // The DOM keeps the same single character as the model, so caret offsets stay in step.
+      const ref = mk('span', 'fnref');
+      ref.dataset.fn = f.fn;
+      ref.dataset.label = labelMap[f.fn] || '?';
+      ref.title = 'Click to edit the note';
+      ref.appendChild(document.createTextNode(r.t));
+      return ref;
+    }
     const text = document.createTextNode(r.t);
     if (!E.MARK_KEYS.some((k) => f[k])) return text;
     const span = mk('span');
@@ -43,8 +55,10 @@
     if (f.b) st.fontWeight = '700';
     if (f.i) st.fontStyle = 'italic';
     const deco = [];
-    if (f.u) deco.push('underline');
-    if (f.s) deco.push('line-through');
+    if (f.u || f.ins) deco.push('underline');
+    if (f.s || f.del) deco.push('line-through');
+    if (f.ins) st.color = '#1e7b3a';
+    if (f.del) st.color = '#c0392b';
     if (deco.length) st.textDecoration = deco.join(' ');
     if (f.sup) st.verticalAlign = 'super';
     if (f.sub) st.verticalAlign = 'sub';
@@ -65,6 +79,7 @@
       e.classList.add('li', 'lv' + Math.min(p.list.level, 8), p.list.kind === 'number' ? 'num' : 'bul');
       e.dataset.marker = marker || '';
     }
+    if (p.cm && p.cm.length) e.classList.add('cmt');
     const s = e.style;
     s.textAlign = p.align || 'left';
     s.marginLeft = ((p.indent || 0) + (p.list ? 27 + p.list.level * 36 : 0)) + 'pt';
@@ -110,6 +125,13 @@
       els[k] = wrap;
       return wrap;
     }
+    if (blk.type === 'cb') {
+      const d = mk('div', 'cbreak');
+      d.contentEditable = 'false';
+      d.dataset.key = k;
+      els[k] = d;
+      return d;
+    }
     if (blk.type === 'pb') {
       const d = mk('div', 'pb');
       d.contentEditable = 'false';
@@ -131,6 +153,7 @@
   }
   function render() {
     els = {};
+    labelMap = E.noteLabels(doc);
     const newNodes = [];
     const newSigs = [];
     let counters = [];
@@ -146,7 +169,8 @@
       } else {
         counters = [];
       }
-      const sig = JSON.stringify([blk, marker]);
+      const refs = blk.type === 'p' ? blk.runs.filter((r) => r.f.fn).map((r) => r.f.fn + '=' + labelMap[r.f.fn]) : [];
+      const sig = JSON.stringify([blk, marker, refs]);
       let node;
       if (sigs[b] === sig && nodes[b] && nodes[b].parentNode === body) {
         node = nodes[b];
@@ -274,12 +298,27 @@
     if (!text) return false;
     ensureText();
     const collapsed = isCollapsed();
+    const patch = Object.assign({ ins: tracking, del: false }, pending || {});
     return commit(() => {
-      const at = collapsed ? sel.anchor : E.deleteRange(doc, sel);
+      let at = collapsed ? sel.anchor : null;
+      if (!collapsed) {
+        if (tracking && sameParaSelection()) {
+          // replacing text while tracking: the old text stays, marked deleted, and the new text follows it
+          const r = E.orderRange(sel);
+          E.trackRangeDelete(E.getPara(doc, r.s.a), r.s.o, r.e.o);
+          at = P(r.s.a, r.e.o);
+        } else {
+          at = E.deleteRange(doc, sel);
+        }
+      }
       const p = E.getPara(doc, at.a);
       if (!p) return null;
-      return P(at.a, E.insertText(p, at.o, text, pending));
+      return P(at.a, E.insertText(p, at.o, text, patch));
     }, collapsed ? 'type' : null);
+  }
+  function sameParaSelection() {
+    const r = E.orderRange(sel);
+    return E.sameAddr(r.s.a, r.e.a) && r.s.a.r === undefined;
   }
   function enter() {
     ensureText();
@@ -294,13 +333,42 @@
       return textPosNear(b - 1);
     }, null);
   }
-  function backspace() {
+  // Tracked deletion: text is marked, not removed. Caret skips over text already marked deleted.
+  function trackedBackspace() {
+    if (!isCollapsed()) {
+      if (!sameParaSelection()) return commit(() => E.deleteRange(doc, sel), null);
+      const r = E.orderRange(sel);
+      return commit(() => { E.trackRangeDelete(E.getPara(doc, r.s.a), r.s.o, r.e.o); return P(r.s.a, r.s.o); }, null);
+    }
+    const a = sel.anchor.a;
+    const p = E.getPara(doc, a);
+    if (!p || a.r !== undefined) return backspace(true);
+    let o = sel.anchor.o;
+    while (o > 0 && E.charFmt(p, o - 1).del) o--;
+    if (o === 0) return commit(() => E.deleteBackward(doc, a, 0), null);
+    return commit(() => { E.trackRangeDelete(p, o - 1, o); return P(a, o - 1); }, null);
+  }
+  function trackedDelete() {
+    if (!isCollapsed()) return trackedBackspace();
+    const a = sel.anchor.a;
+    const p = E.getPara(doc, a);
+    if (!p || a.r !== undefined) return del(true);
+    let o = sel.anchor.o;
+    const len = E.paraLen(p);
+    while (o < len && E.charFmt(p, o).del) o++;
+    if (o >= len) return false;
+    const wasInserted = !!E.charFmt(p, o).ins;
+    return commit(() => { E.trackRangeDelete(p, o, o + 1); return P(a, wasInserted ? o : o + 1); }, null);
+  }
+  function backspace(plain) {
+    if (tracking && !plain) return trackedBackspace();
     if (!isCollapsed()) return commit(() => E.deleteRange(doc, sel), null);
     const a = sel.anchor.a;
     if (!E.getPara(doc, a)) return a.r === undefined ? removeBlockAt(a.b) : false;
     return commit(() => E.deleteBackward(doc, a, sel.anchor.o), null);
   }
-  function del() {
+  function del(plain) {
+    if (tracking && !plain) return trackedDelete();
     if (!isCollapsed()) return commit(() => E.deleteRange(doc, sel), null);
     const a = sel.anchor.a;
     if (!E.getPara(doc, a)) return a.r === undefined ? removeBlockAt(a.b) : false;
@@ -383,6 +451,66 @@
   }
   function changeIndent(delta) {
     return commit(() => { E.changeIndent(doc, paraAddrs(), delta); return null; }, null);
+  }
+
+  // ---------- format painter ----------
+  function armPainter() {
+    const a = sel.anchor.a;
+    const p = E.getPara(doc, a);
+    if (!p) return false;
+    const f = isCollapsed() ? E.fmtBefore(p, sel.anchor.o) : E.charFmt(p, E.orderRange(sel).s.o);
+    const marks = {};
+    E.MARK_KEYS.forEach((k) => { if (f[k]) marks[k] = f[k]; });
+    painter = {
+      marks,
+      para: { style: p.style, align: p.align, line: p.line, indent: p.indent, before: p.before, after: p.after },
+    };
+    emit('selection');
+    return true;
+  }
+  function disarmPainter() { painter = null; emit('selection'); }
+  function applyPainter() {
+    const pt = painter;
+    painter = null;
+    const patch = {};
+    E.MARK_KEYS.forEach((k) => { patch[k] = pt.marks[k] || false; });
+    commit(() => {
+      E.formatRange(doc, sel, patch);
+      E.setParaProps(doc, E.rangeAddrs(doc, sel), pt.para);
+      return null;
+    }, null);
+  }
+
+  // ---------- inserts from the Insert tab ----------
+  function insertRuns(runs) {
+    if (!runs.length || sel.anchor.a.r !== undefined || sel.focus.a.r !== undefined) return false;
+    ensureText();
+    let ok = false;
+    commit(() => {
+      const at = isCollapsed() ? sel.anchor : E.deleteRange(doc, sel);
+      const pos = E.pasteFragments(doc, at.a, at.o, [runs]);
+      ok = !!pos;
+      return pos;
+    }, null);
+    return ok;
+  }
+  function currentAddr() { return sel.anchor.a; }
+  function addComment(text) {
+    let id = null;
+    commit(() => { id = E.addComment(doc, sel.anchor.a, text); return null; }, null);
+    return id;
+  }
+  function removeComment(id) { commit(() => { E.removeComment(doc, id); return null; }, null); }
+  function setBookmark(name) {
+    let ok = false;
+    commit(() => { ok = E.setBookmark(doc, sel.anchor.a, name); return null; }, null);
+    return ok;
+  }
+  function removeBookmark(name) { commit(() => { E.removeBookmark(doc, name); return null; }, null); }
+  function fixEditor() {
+    let n = 0;
+    commit(() => { n = E.editorFixAll(doc); return null; }, null);
+    return n;
   }
 
   // ---------- clipboard ----------
@@ -586,6 +714,11 @@
         e.preventDefault();
     }
   }
+  // Format Painter applies once a selection gesture finishes: mouse button released, or Shift released.
+  function onGestureEnd() {
+    onSelChange();
+    if (painter && !isCollapsed()) applyPainter();
+  }
   function onPaste(e) {
     e.preventDefault();
     paste((e.clipboardData && e.clipboardData.getData('text/plain')) || '');
@@ -642,6 +775,8 @@
       pending: pending ? Object.assign({}, pending) : null,
       canUndo: undoStack.length > 0,
       canRedo: redoStack.length > 0,
+      painter: !!painter,
+      tracking,
     };
   }
 
@@ -654,6 +789,8 @@
       body.addEventListener('beforeinput', onBeforeInput);
       body.addEventListener('keydown', onKeydown);
       body.addEventListener('paste', onPaste);
+      body.addEventListener('mouseup', onGestureEnd);
+      body.addEventListener('keyup', (e) => { if (e.key === 'Shift') onGestureEnd(); });
       body.addEventListener('copy', onCopy);
       body.addEventListener('cut', onCut);
       body.addEventListener('compositionstart', () => { composing = true; });
@@ -677,8 +814,9 @@
     state,
     caretKey: () => key(sel.anchor.a),
     elementFor: (k) => els[k] || null,
-    focus() { body.focus({ preventScroll: true }); applySelection({ focus: true }); },
-    moveTo(b) { setSel(atPos(P({ b }, 0))); },
+    focus() { onSelChange(); body.focus({ preventScroll: true }); applySelection({ focus: true }); },
+    sync: () => onSelChange(),
+    moveTo(x) { setSel(atPos(P(typeof x === 'number' ? { b: x } : x, 0))); },
     typeText, enter, backspace, del, onTab,
     toggleMark, setMark, clearFormat, changeSize, setStyle, setParaProp, toggleList, changeIndent,
     copy, cut, paste, undo, redo, selectAll, selectRange, findNext, replaceCurrent, replaceAll, selectedText,
@@ -693,6 +831,44 @@
       mergeBelow: () => tableOp((a) => E.mergeCells(doc, a.b, a.r, a.c, a.r + 1, a.c)),
     },
     deleteTable,
+    armPainter, disarmPainter, painterArmed: () => !!painter,
+    setTracking(on) { tracking = !!on; emit('selection'); },
+    isTracking: () => tracking,
+    acceptAllChanges() { let n = 0; commit(() => { n = E.countChanges(doc).inserted + E.countChanges(doc).deleted; E.acceptAllChanges(doc); return null; }, null); return n; },
+    rejectAllChanges() { let n = 0; commit(() => { n = E.countChanges(doc).inserted + E.countChanges(doc).deleted; E.rejectAllChanges(doc); return null; }, null); return n; },
+    countChanges: () => E.countChanges(doc),
+    setAlt(b, alt) { let ok = false; commit(() => { ok = E.setAlt(doc, b, alt); return null; }, null); return ok; },
+    insertBlocks: (blocks) => insertBlock(blocks),
+    insertNote(kind, text) {
+      let res = null;
+      if (sel.anchor.a.r !== undefined || sel.focus.a.r !== undefined) return null;
+      ensureText();
+      commit(() => {
+        const at = isCollapsed() ? sel.anchor : E.deleteRange(doc, sel);
+        res = E.insertNote(doc, at.a, at.o, kind, text);
+        return res ? P(at.a, res.o) : null;
+      }, null);
+      return res ? res.id : null;
+    },
+    setNoteText(id, text) {
+      let ok = false;
+      commit(() => { ok = E.setNoteText(doc, id, text); return null; }, null);
+      return ok;
+    },
+    insertColumnBreak: () => insertBlock([{ type: 'cb' }]),
+    insertParagraphs: (paras) => insertBlock(paras),
+    updateToc() {
+      let ok = false;
+      commit(() => { ok = E.updateToc(doc); return null; }, null);
+      return ok;
+    },
+    addSource(src) {
+      let id = null;
+      commit(() => { id = E.addSource(doc, src); return null; }, null);
+      return id;
+    },
+    removeSource(id) { commit(() => { E.removeSource(doc, id); return null; }, null); },
+    insertRuns, currentAddr, addComment, removeComment, setBookmark, removeBookmark, fixEditor,
     setDocField, setSection, setAllParas, setTitle,
     wordCount: () => E.wordCount(doc),
     outline: () => E.outline(doc),
