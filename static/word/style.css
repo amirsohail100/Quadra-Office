@@ -371,3 +371,47 @@ table.kv td:last-child { text-align: right; font-variant-numeric: tabular-nums; 
 .app-ico.onenote { background: #7a3fc4; }
 .profile-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .profile-field input { padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--chrome); color: var(--text); font-size: 13px; }
+
+.para.cmt { box-shadow: -3px 0 0 #f5a524; }
+
+/* ---------- round 5: notes, column breaks, line numbers ---------- */
+.para { position: relative; }
+.fnref { position: relative; }
+.fnref::after { content: attr(data-label); font-size: 65%; vertical-align: super; color: var(--accent); margin-left: 1px; }
+.cbreak {
+  height: 0; margin: 10pt 0; border-top: 1px dashed var(--muted); position: relative; break-after: column;
+  color: var(--muted); user-select: none;
+}
+.cbreak::after { content: "Column break"; position: absolute; top: -0.7em; left: 50%; transform: translateX(-50%); background: var(--sheet); padding: 0 8px; font-size: 9pt; }
+.doc-body.lines { counter-reset: ln; }
+.doc-body.lines .para { counter-increment: ln; }
+.doc-body.lines .para::after {
+  content: counter(ln); position: absolute; left: -58pt; width: 26pt; text-align: right; color: var(--muted); font-size: 9pt;
+}
+.notes-area { margin-top: 24pt; border-top: 1px solid var(--border); padding-top: 8pt; font-size: 10pt; color: var(--muted); }
+.notes-area h4 { margin: 6pt 0 4pt; font-size: 10pt; color: var(--muted); }
+.notes-area ol { margin: 0; padding-left: 0; list-style: none; }
+.notes-area li { margin: 0 0 3pt; cursor: pointer; }
+.notes-area li:hover { color: var(--accent); }
+.notes-area li sup { color: var(--accent); margin-right: 4px; }
+@media print {
+  .cbreak { break-after: column; border: 0; color: transparent; }
+  .cbreak::after { content: ""; }
+  .doc-body.lines .para::after { display: none; }
+  .notes-area { break-before: auto; }
+}
+
+/* ---------- round 6: tracked changes, multiple pages, reading view ---------- */
+.sheet.view-multi {
+  background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--page-h, 1123px) - 3px),
+    #aab4c0 calc(var(--page-h, 1123px) - 3px), #aab4c0 var(--page-h, 1123px));
+}
+body.reading .titlebar, body.reading .menubar, body.reading .ribbon, body.reading .statusbar,
+body.reading .nav-pane, body.reading .ruler { display: none !important; }
+body.reading .sheet-wrap { padding: 24px 0; }
+body.reading .sheet { zoom: 1.15; }
+.reading-exit {
+  position: fixed; top: 12px; right: 12px; z-index: 70; padding: 6px 12px; border-radius: 6px;
+  background: var(--chrome-2); border: 1px solid var(--border); box-shadow: var(--shadow);
+}
+body.reading .reading-exit:not([hidden]) { display: inline-block; }
