@@ -182,6 +182,153 @@ with sync_playwright() as p:
     pg.reload(); pg.wait_for_timeout(250)
     check("rules survive a reload", pg.evaluate("QuadraCore.rules.length") == 1)
 
+    # Home tab: Format Cells, Cell Styles, indent, text angle, add-ins
+    pg.evaluate("localStorage.clear()"); pg.reload(); pg.wait_for_timeout(250)
+    click_cell(0, 0); pg.keyboard.type("Quote"); pg.keyboard.press("Enter")
+    click_cell(0, 0)
+    pg.click('#ribbon [data-cmd="indentOut"]'); pg.click('#ribbon [data-cmd="indentOut"]'); pg.wait_for_timeout(40)
+    check("increase indent twice -> indent 2", pg.evaluate("QuadraCore.getCell(0,0).s.indent") == 2)
+    pg.click('#ribbon [data-cmd="indentIn"]'); pg.wait_for_timeout(40)
+    check("decrease indent -> indent 1", pg.evaluate("QuadraCore.getCell(0,0).s.indent") == 1)
+    pg.click('#ribbon [data-menu="cellStyles"]'); pg.wait_for_timeout(40)
+    pg.click('#popRoot [data-cmd="style"][data-val="bad"]'); pg.wait_for_timeout(60)
+    check("Cell Styles > Bad sets red fill and dark red text",
+          pg.evaluate("QuadraCore.getCell(0,0).s.fill") == "#ffc7ce" and pg.evaluate("QuadraCore.getCell(0,0).s.color") == "#9c0006")
+    pg.click('#ribbon [data-menu="orient"]'); pg.wait_for_timeout(40)
+    pg.click('#popRoot [data-cmd="angle"][data-val="90"]'); pg.wait_for_timeout(60)
+    check("Orientation > Rotate Text Up sets 90 degrees", pg.evaluate("QuadraCore.getCell(0,0).s.angle") == 90)
+    pg.click('#ribbon [data-cmd="formatCells"]'); pg.wait_for_timeout(60)
+    check("Format Cells dialog opens with the current values", pg.is_visible(".dlg") and pg.input_value("#fcAngle") == "90")
+    pg.select_option("#fcNf", "currency"); pg.fill("#fcAngle", "0")
+    pg.click('.dlg .btn.primary'); pg.wait_for_timeout(60)
+    check("Format Cells OK applies the number format and clears the angle",
+          pg.evaluate("QuadraCore.getCell(0,0).s.nf") == "currency" and pg.evaluate("QuadraCore.getCell(0,0).s.angle") is None)
+    pg.click('#ribbon [data-cmd="addins"]'); pg.wait_for_timeout(40)
+    check("Add-ins opens a dialog", pg.is_visible(".dlg") and "No add-ins" in pg.inner_text(".dlg"))
+    pg.keyboard.press("Escape")
+
+    # Cut must start from the selected cell
+    click_cell(0, 0); pg.keyboard.type("Cut me"); pg.keyboard.press("Enter")
+    click_cell(0, 0); pg.click('#ribbon [data-cmd="cut"]'); click_cell(9, 0)
+    pg.click('#ribbon [data-cmd="paste"]'); pg.wait_for_timeout(60)
+    check("Cut then Paste moves the value", pg.evaluate("QuadraCore.getCell(0,9).v") == "Cut me" and pg.evaluate("QuadraCore.getCell(0,0)") is None)
+
+    # Insert tab: checkbox, charts, PivotTable, text box, shapes, picture
+    pg.evaluate("localStorage.clear()"); pg.reload(); pg.wait_for_timeout(250)
+    click_cell(0, 0); pg.keyboard.type("Done"); pg.keyboard.press("Enter")
+    click_cell(1, 0)
+    pg.click('.tab[data-tab="Insert"]'); pg.wait_for_timeout(40)
+    pg.click('#ribbon [data-cmd="checkbox"]'); pg.wait_for_timeout(40)
+    check("Checkbox inserted as FALSE", pg.evaluate("QuadraCore.getCell(0,1).v") == "FALSE" and pg.evaluate("QuadraCore.getCell(0,1).s.checkbox") is True)
+    box = pg.locator("#canvas").bounding_box()
+    pg.mouse.click(box["x"] + 40 + 64 + 8, box["y"] + 20 + 10); pg.wait_for_timeout(40)
+    check("clicking the checkbox ticks it", pg.evaluate("QuadraCore.cellValue(0,1)") is True)
+    pg.mouse.click(box["x"] + 40 + 64 + 8, box["y"] + 20 + 10); pg.wait_for_timeout(40)
+    check("clicking again unticks it", pg.evaluate("QuadraCore.cellValue(0,1)") is False)
+
+    # data for charts and pivot: Region, Sales, Cost
+    pg.evaluate("QuadraCore.clearSheet()")
+    rows = [("Region", "Sales", "Cost"), ("North", 10, 4), ("South", 20, 8), ("North", 5, 2)]
+    for r, row in enumerate(rows):
+        for c, v in enumerate(row):
+            click_cell(c, r); pg.keyboard.type(str(v)); pg.keyboard.press("Enter")
+    for chart, label in [("scatter", "scatter"), ("histogram", "histogram"), ("combo", "combo")]:
+        pg.evaluate("QuadraCore.sel.ar=1;QuadraCore.sel.ac=1;QuadraCore.sel.fr=3;QuadraCore.sel.fc=2;QuadraCore.refresh()")
+        pg.evaluate(f"QuadraCore.run('chart','{chart}')"); pg.wait_for_timeout(60)
+        check(f"{label} chart draws an SVG", pg.locator(".dlg svg.chart").count() == 1 and pg.locator(".dlg svg.chart *").count() > 3)
+        pg.keyboard.press("Escape")
+
+    pg.evaluate("QuadraCore.sel.ar=0;QuadraCore.sel.ac=0;QuadraCore.sel.fr=3;QuadraCore.sel.fc=2;QuadraCore.refresh()")
+    pg.click('#ribbon [data-menu="pivot"]'); pg.wait_for_timeout(40)
+    pg.click('#popRoot [data-cmd="pivot"]'); pg.wait_for_timeout(60)
+    pg.click('.dlg .btn.primary'); pg.wait_for_timeout(60)
+    check("PivotTable groups by Region and adds Sales (North 15, South 20)",
+          pg.evaluate("QuadraCore.getCell(1,4).v") == "North" and pg.evaluate("QuadraCore.cellValue(1,5)") == 15 and pg.evaluate("QuadraCore.cellValue(2,5)") == 20,
+          f"E2={pg.evaluate('(QuadraCore.getCell(1,4)||{}).v')}")
+    check("PivotTable total is a formula that evaluates to 35", pg.evaluate("QuadraCore.getCell(3,4).v") == "Total" and pg.evaluate("QuadraCore.cellValue(3,5)") == 35)
+
+    pg.click('#ribbon [data-cmd="textBox"]') if False else None
+    pg.once("dialog", lambda d: d.accept("Hello box"))
+    pg.evaluate("QuadraCore.sel.ar=QuadraCore.sel.fr=0; QuadraCore.sel.ac=QuadraCore.sel.fc=0; QuadraCore.refresh()")
+    pg.click('#ribbon [data-cmd="textBox"]'); pg.wait_for_timeout(60)
+    check("Text box is drawn on the drawing layer", pg.evaluate("QuadraCore.serialize().length") > 0 and pg.evaluate("(function(){const c=document.getElementById('drawLayer');const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let n=0;for(let i=3;i<d.length;i+=4) if(d[i]>0) n++;return n})()") > 50)
+    pg.click('#ribbon [data-menu="shapes"]'); pg.wait_for_timeout(40)
+    pg.click('#popRoot [data-val="oval"]'); pg.wait_for_timeout(60)
+    check("Shape > Oval is added", pg.evaluate("(function(){const c=document.getElementById('drawLayer');const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let n=0;for(let i=3;i<d.length;i+=4) if(d[i]>0) n++;return n})()") > 200)
+    with pg.expect_file_chooser() as fc:
+        pg.click('#ribbon [data-menu="pictures"]'); pg.wait_for_timeout(40)
+        pg.click('#popRoot [data-cmd="picturesFile"]')
+    fc.value.set_files(str(pathlib.Path(__file__).resolve().parent.parent / "assets" / "icons.svg".replace("icons.svg", "icons.svg")) if False else None) if False else None
+    import tempfile, base64
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False); tmp.write(png); tmp.close()
+    fc.value.set_files(tmp.name); pg.wait_for_timeout(200)
+    check("Pictures > This Device draws the picture", pg.evaluate("(function(){const c=document.getElementById('drawLayer');const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let n=0;for(let i=3;i<d.length;i+=4) if(d[i]>0) n++;return n})()") > 200)
+
+    # Share tab
+    pg.evaluate("localStorage.clear()"); pg.reload(); pg.wait_for_timeout(250)
+    pg.click('.tab[data-tab="Share"]'); pg.wait_for_timeout(40)
+    pg.click('#ribbon [data-cmd="shareBook"]'); pg.wait_for_timeout(60)
+    check("Share opens a dialog with the link", pg.is_visible(".dlg") and pg.input_value("#shareUrl").startswith("file:"))
+    pg.keyboard.press("Escape")
+    pg.click('#ribbon [data-cmd="linkSheet"]'); pg.wait_for_timeout(60)
+    check("Link to this Sheet reports it was copied", "copied" in pg.inner_text("#toast").lower())
+
+    # Page Layout: themes, colours and fonts
+    pg.click('.tab[data-tab="Page Layout"]'); pg.wait_for_timeout(40)
+    pg.click('#ribbon [data-menu="pageTheme"]'); pg.click('#popRoot [data-val="ocean"]'); pg.wait_for_timeout(60)
+    check("Theme Ocean sets the accent colour", pg.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()") == "#0f6cbd")
+    pg.click('#ribbon [data-menu="fonts"]'); pg.click('#popRoot [data-val="Georgia"]'); pg.wait_for_timeout(40)
+    check("Fonts > Georgia becomes the default font", pg.evaluate("localStorage.getItem('quadra.font')") == "Georgia")
+    pg.click('#ribbon [data-menu="colors"]'); pg.click('#popRoot [data-val="#c43e1c"]'); pg.wait_for_timeout(40)
+    check("Colors > Orange changes the accent", pg.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()") == "#c43e1c")
+
+    # page setup values
+    pg.click('#ribbon [data-menu="margins"]'); pg.click('#popRoot [data-val="wide"]')
+    pg.click('#ribbon [data-menu="orientation"]'); pg.click('#popRoot [data-val="landscape"]')
+    pg.click('#ribbon [data-menu="paperSize"]'); pg.click('#popRoot [data-val="Letter"]')
+    ps = lambda: pg.evaluate("JSON.parse(localStorage.getItem('quadra.pageSetup') || '{}')")
+    check("Margins Wide, Landscape and Letter are saved", ps().get("margins") == "wide" and ps().get("orientation") == "landscape" and ps().get("size") == "Letter", str(ps()))
+    pg.select_option('#ribbon select[data-cmd="scaleW"]', "1"); pg.wait_for_timeout(40)
+    check("Scale to Fit: width 1 page is saved", ps().get("fitW") is True)
+    pg.select_option('#ribbon select[data-cmd="scale"]', "75"); pg.wait_for_timeout(40)
+    check("Scale 75% is saved", ps().get("scale") == 75)
+
+    # data for the print preview
+    click_cell(0, 0); pg.keyboard.type("Item"); pg.keyboard.press("Enter")
+    click_cell(1, 0); pg.keyboard.type("Qty"); pg.keyboard.press("Enter")
+    for r in range(1, 40):  # rows below the screen are reached through the Name Box, not by clicking
+        pg.fill("#nameBox", f"A{r + 1}"); pg.press("#nameBox", "Enter")
+        pg.keyboard.type(f"Row {r}"); pg.keyboard.press("Enter")
+    pg.evaluate("QuadraCore.sel.ar=0;QuadraCore.sel.ac=0;QuadraCore.sel.fr=2;QuadraCore.sel.fc=1;QuadraCore.refresh()")
+    pg.click('#ribbon [data-menu="printArea"]'); pg.click('#popRoot [data-val="set"]'); pg.wait_for_timeout(40)
+    check("Print Area is set from the selection", ps().get("printArea") == {"r1": 0, "c1": 0, "r2": 2, "c2": 1})
+    pg.click('#ribbon [data-menu="printArea"]'); pg.click('#popRoot [data-val="clear"]'); pg.wait_for_timeout(40)
+    check("Clear Print Area removes it", ps().get("printArea") is None)
+
+    pg.evaluate("QuadraCore.sel.ar=QuadraCore.sel.fr=10;QuadraCore.sel.ac=QuadraCore.sel.fc=0;QuadraCore.refresh()")
+    pg.click('#ribbon [data-menu="breaks"]'); pg.click('#popRoot [data-val="insert"]'); pg.wait_for_timeout(40)
+    check("Insert Page Break at row 11 is saved", 10 in ps().get("breaks", []))
+
+    pg.once("dialog", lambda d: d.accept("1"))
+    pg.click('#ribbon [data-cmd="printTitles"]'); pg.wait_for_timeout(40)
+    check("Print Titles: first row repeats", ps().get("titles") == 1)
+
+    # print preview (through File > Print)
+    pg.click('.tab[data-tab="File"]'); pg.click('[data-bs="print"]'); pg.wait_for_timeout(40)
+    pg.click("#bsPrint"); pg.wait_for_timeout(80)
+    check("Print Preview shows the pages", pg.is_visible(".dlg .pv-wrap") and pg.locator(".dlg .pv-page").count() >= 2, pg.inner_text(".dlg .note") if pg.is_visible(".dlg .note") else "")
+    pg.keyboard.press("Escape")  # closes the preview and the backstage
+
+    # background picture from a file
+    import tempfile, base64
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False); tmp.write(png); tmp.close()
+    with pg.expect_file_chooser() as fc:
+        pg.click('#ribbon [data-menu="background"]'); pg.click('#popRoot [data-val="insert"]')
+    fc.value.set_files(tmp.name); pg.wait_for_timeout(250)
+    check("Background picture covers the empty grid", pg.evaluate("(function(){const c=document.getElementById('canvas');const d=c.getContext('2d').getImageData(600,300,1,1).data;return [d[0],d[1],d[2]].join(',')})()") != "255,255,255")
+
     # Coming-soon command shows a message instead of crashing
     pg.evaluate("QuadraCore.run('pivot')")
     b.close()
