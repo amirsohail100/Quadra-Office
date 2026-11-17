@@ -1,0 +1,11 @@
+const {open}=require('./helpers');
+(async()=>{const H=await open(),{pg,ok,btn}=H;await pg.click('[data-tab=Help]');
+ok(await pg.$$eval('#ribbon use[href="#i-na"]',a=>a.length)===0,'no placeholder icons');
+await btn('Help');const all=await pg.$$eval('#helpList .topic',a=>a.length);ok(all>=8,'help topics listed');await pg.fill('#helpSearch','table');const f=await pg.$$eval('#helpList .topic',a=>a.filter(e=>getComputedStyle(e).display!=='none').length);ok(f>=1&&f<all,'help search filters live');await pg.click('#dlgOk');
+await btn('Keyboard Shortcuts');ok(await pg.$eval('#dlg',d=>d.textContent.includes('Ctrl+B')),'shortcuts');await pg.click('#dlgOk');
+await btn('Give Feedback');await pg.click('#askOk');ok(await pg.evaluate(()=>JSON.parse(localStorage.getItem('quadra-feedback')||'[]').length)===0,'empty feedback rejected');
+await pg.selectOption('#fbType','Suggestion');await pg.fill('#fbText','Please add dark ink');await pg.click('#askOk');
+ok(await pg.evaluate(()=>{const a=JSON.parse(localStorage.getItem('quadra-feedback')||'[]');return a.length===1&&a[0].type==='Suggestion'&&a[0].text==='Please add dark ink'}),'feedback stored');
+await btn('Give Feedback');const [d]=await Promise.all([pg.waitForEvent('download'),pg.click('#fbDl')]);ok(require('fs').readFileSync(await d.path(),'utf8').includes('Please add dark ink'),'feedback download');await pg.click('#dlgOk');
+await btn('About');ok(await pg.$eval('#dlg',d=>d.textContent.includes('0.5')),'about shows version');
+ok(H.errs.length===0,'no page errors');await H.close();console.log('help tests passed:',H.n)})().catch(e=>{console.error(e.message);process.exit(1)});
