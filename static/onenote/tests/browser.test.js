@@ -9,7 +9,7 @@ await pg.click('#addSec');s=await st();ok(s.nb.sections.length===2,'section adde
 await pg.mouse.click(600,300);await pg.keyboard.type('hello world');s=await st();
 ok(s.nb.sections[1].pages[0].items.some(i=>i.html.includes('hello world')),'typed text in model');
 await pg.keyboard.press('Control+A');await pg.click('[title=Bold]');ok(await pg.$eval('.ed',(e)=>!!e.querySelector("b,strong")),'bold in DOM');
-await pg.click('[data-tab=Draw]');await pg.click('[title="Pen"]');ok(await pg.$eval('#dlg',(d)=>d.open&&d.textContent.includes("not available")),'N/A dialog');await pg.click('#dlgOk');
+await pg.click('button.share');ok(await pg.$eval('#dlg',(d)=>d.open&&d.textContent.includes("not available")),'N/A dialog');await pg.click('#dlgOk');
 await pg.click('#themeBtn');ok((await st()).theme==='dark','theme dark');
 await pg.reload();s=await st();ok(s.nb.sections[1].pages[0].items[0].html.includes('hello world'),'persisted after reload');
 await pg.fill('#pageTitle','Alpha');await pg.click('#railSearch');await pg.fill('#q','hello');ok((await pg.$$('.res')).length===1,'search hit');
