@@ -591,6 +591,27 @@
     }
   }
 
+  // Rewrites every reference in a formula. mapRef({col,row,absC,absR}) returns
+  // {col,row} for the new place, or null when the referenced cell was deleted (-> #REF!).
+  function remapFormula(raw, mapRef) {
+    if (typeof raw !== "string" || raw.length < 2 || raw[0] !== "=") return raw;
+    const body = raw.slice(1);
+    let tokens;
+    try { tokens = tokenize(body); } catch (e) { return raw; }
+    let out = body;
+    for (let i = tokens.length - 1; i >= 0; i--) {
+      const t = tokens[i];
+      if (t.t !== "ref") continue;
+      const v = t.v;
+      const m = mapRef(v);
+      const text = m
+        ? (v.absC ? "$" : "") + indexToCol(m.col) + (v.absR ? "$" : "") + (m.row + 1)
+        : ERR.REF;
+      out = out.slice(0, t.start) + text + out.slice(t.end);
+    }
+    return "=" + out;
+  }
+
   // ---------- Public functions ----------
   function evaluateFormula(src, env) {
     try {
@@ -643,6 +664,7 @@
     computeRaw,
     evaluateFormula,
     shiftFormula,
+    remapFormula,
     compareValues,
     colToIndex,
     indexToCol,
