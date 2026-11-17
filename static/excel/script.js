@@ -22,6 +22,13 @@
   const S = { ar: 0, ac: 0, fr: 0, fc: 0 };   // anchor = active cell, focus = range end
   let editing = false, dragging = false, clip = null, painter = null;
   let extras = []; // extra selected rectangles added with Ctrl+click
+  const pal = {
+    cell: "#ffffff", text: "#201f1e", grid: "#e1dfdd", accent: "#107c41",
+    header: "#f8f9fa", headerSel: "#e1f0e6", headerText: "#605e5c", headerLine: "#c8c6c4",
+    selTint: "rgba(16,124,65,0.12)", border: "#323130"
+  };
+  const listeners = [];
+  const rules = []; // conditional formatting: {r1,c1,r2,c2,op,a,b,fill,color}
   let pendingColor = null, rafId = 0, toastTimer = 0;
 
   // ---------- Helpers ----------
@@ -190,7 +197,7 @@
   function drawCellText(cell, v, text, x, y) {
     const s = cell.s, size = Math.round((s.size || DEFAULT_SIZE) * 1.2), pad = 4;
     ctx.font = `${s.italic ? "italic " : ""}${s.bold ? "bold " : ""}${size}px ${s.font || DEFAULT_FONT}, Arial, sans-serif`;
-    ctx.fillStyle = s.color || "#201f1e";
+    ctx.fillStyle = s.color || pal.text;
     const ha = s.ha || (typeof v === "number" ? "right" : typeof v === "boolean" ? "center" : "left");
     const va = s.va || "bottom";
     const tx = ha === "center" ? x + COL_W / 2 : ha === "right" ? x + COL_W - pad : x + pad;
@@ -226,7 +233,7 @@
     const r1 = Math.min(rowCount - 1, r0 + Math.ceil(H / ROW_H) + 1);
     const R = range();
 
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = pal.cell;
     ctx.fillRect(0, 0, W, H);
 
     ctx.save();
@@ -236,26 +243,38 @@
     for (const E of extras) {
       const ex1 = Math.max(HDR_W, X(E.c1)), ey1 = Math.max(HDR_H, Y(E.r1));
       const ex2 = Math.min(W, X(E.c2 + 1)), ey2 = Math.min(H, Y(E.r2 + 1));
-      if (ex2 > ex1 && ey2 > ey1) { ctx.fillStyle = "rgba(16,124,65,0.12)"; ctx.fillRect(ex1, ey1, ex2 - ex1, ey2 - ey1); }
+      if (ex2 > ex1 && ey2 > ey1) { ctx.fillStyle = pal.selTint; ctx.fillRect(ex1, ey1, ex2 - ex1, ey2 - ey1); }
     }
     const x1 = Math.max(HDR_W, X(R.c1)), y1 = Math.max(HDR_H, Y(R.r1));
     const x2 = Math.min(W, X(R.c2 + 1)), y2 = Math.min(H, Y(R.r2 + 1));
-    if (x2 > x1 && y2 > y1) { ctx.fillStyle = "rgba(16,124,65,0.12)"; ctx.fillRect(x1, y1, x2 - x1, y2 - y1); }
+    if (x2 > x1 && y2 > y1) { ctx.fillStyle = pal.selTint; ctx.fillRect(x1, y1, x2 - x1, y2 - y1); }
 
     // 2. cell fills
     for (let r = r0; r <= r1; r++) {
       for (let c = c0; c <= c1; c++) {
         const cell = cells.get(key(r, c));
         const isActive = r === S.ar && c === S.ac;
-        const f = isActive ? (cell && cell.s.fill) || "#fff" : cell && cell.s.fill;
+        const rule = rules.length ? ruleFor(r, c, cellValue(r, c)) : null;
+        const f = rule ? rule.fill : isActive ? (cell && cell.s.fill) || pal.cell : cell && cell.s.fill;
         if (f) { ctx.fillStyle = f; ctx.fillRect(X(c), Y(r), COL_W, ROW_H); }
       }
     }
 
     // 3. gridlines
-    ctx.strokeStyle = sheetOpt.gridView ? "#e1dfdd" : "rgba(0,0,0,0)"; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.strokeStyle = sheetOpt.gridView ? pal.grid : "rgba(0,0,0,0)"; ctx.lineWidth = 1; ctx.beginPath();
     for (let c = c0; c <= c1 + 1; c++) { const x = Math.floor(X(c)) + 0.5; ctx.moveTo(x, HDR_H); ctx.lineTo(x, H); }
     for (let r = r0; r <= r1 + 1; r++) { const y = Math.floor(Y(r)) + 0.5; ctx.moveTo(HDR_W, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+
+    // 3b. cell borders
+    ctx.strokeStyle = pal.border; ctx.lineWidth = 1; ctx.beginPath();
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const cell = cells.get(key(r, c));
+        if (!cell || !cell.s.border) continue;
+        ctx.rect(Math.floor(X(c)) + 0.5, Math.floor(Y(r)) + 0.5, COL_W - 1, ROW_H - 1);
+      }
+    }
     ctx.stroke();
 
     // 4. cell text
@@ -267,7 +286,8 @@
         const v = cellValue(r, c);
         const text = sheetOpt.showFormulas && cell.v[0] === "=" ? cell.v : displayText(v, cell.s);
         if (text === "") continue;
-        drawCellText(cell, v, text, X(c), Y(r));
+        const hit = rules.length ? ruleFor(r, c, v) : null;
+        drawCellText(hit && hit.color ? { ...cell, s: { ...cell.s, color: hit.color } } : cell, v, text, X(c), Y(r));
       }
     }
 
@@ -298,35 +318,35 @@
     }
 
     // 5. active cell outline
-    ctx.strokeStyle = "#107c41"; ctx.lineWidth = 2;
+    ctx.strokeStyle = pal.accent; ctx.lineWidth = 2;
     ctx.strokeRect(X(S.ac) + 1, Y(S.ar) + 1, COL_W - 2, ROW_H - 2);
     ctx.restore();
 
     // Headings hidden: blank the header bands and stop
     if (!sheetOpt.headingsView) {
-      ctx.fillStyle = "#fff";
+      ctx.fillStyle = pal.cell;
       ctx.fillRect(0, 0, W, HDR_H);
       ctx.fillRect(0, 0, HDR_W, H);
       return;
     }
 
     // 6. column headers (pinned to top)
-    ctx.fillStyle = "#f8f9fa";
+    ctx.fillStyle = pal.header;
     ctx.fillRect(HDR_W, 0, W - HDR_W, HDR_H);
     ctx.save();
     ctx.beginPath(); ctx.rect(HDR_W, 0, W - HDR_W, HDR_H); ctx.clip();
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     for (let c = c0; c <= c1; c++) {
       const x = X(c), sel = c >= R.c1 && c <= R.c2;
-      if (sel) { ctx.fillStyle = "#e1f0e6"; ctx.fillRect(x, 0, COL_W, HDR_H); }
-      ctx.fillStyle = sel ? "#107c41" : "#605e5c";
+      if (sel) { ctx.fillStyle = pal.headerSel; ctx.fillRect(x, 0, COL_W, HDR_H); }
+      ctx.fillStyle = sel ? pal.accent : pal.headerText;
       ctx.font = (sel ? "600 " : "") + "12px Segoe UI, Arial, sans-serif";
       ctx.fillText(colName(c), x + COL_W / 2, HDR_H / 2);
     }
     ctx.restore();
 
     // 7. row headers (pinned to left)
-    ctx.fillStyle = "#f8f9fa";
+    ctx.fillStyle = pal.header;
     ctx.fillRect(0, HDR_H, HDR_W, H - HDR_H);
     ctx.save();
     ctx.beginPath(); ctx.rect(0, HDR_H, HDR_W, H - HDR_H); ctx.clip();
@@ -334,16 +354,16 @@
     ctx.font = "12px Segoe UI, Arial, sans-serif";
     for (let r = r0; r <= r1; r++) {
       const y = Y(r), sel = r >= R.r1 && r <= R.r2;
-      if (sel) { ctx.fillStyle = "#e1f0e6"; ctx.fillRect(0, y, HDR_W, ROW_H); }
-      ctx.fillStyle = sel ? "#107c41" : "#605e5c";
+      if (sel) { ctx.fillStyle = pal.headerSel; ctx.fillRect(0, y, HDR_W, ROW_H); }
+      ctx.fillStyle = sel ? pal.accent : pal.headerText;
       ctx.fillText(String(r + 1), HDR_W / 2, y + ROW_H / 2);
     }
     ctx.restore();
 
     // 8. corner + header borders
-    ctx.fillStyle = "#f8f9fa";
+    ctx.fillStyle = pal.header;
     ctx.fillRect(0, 0, HDR_W, HDR_H);
-    ctx.strokeStyle = "#c8c6c4"; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.strokeStyle = pal.headerLine; ctx.lineWidth = 1; ctx.beginPath();
     ctx.moveTo(0, HDR_H + 0.5); ctx.lineTo(W, HDR_H + 0.5);
     ctx.moveTo(HDR_W + 0.5, 0); ctx.lineTo(HDR_W + 0.5, H);
     for (let c = c0; c <= c1 + 1; c++) { const x = Math.floor(X(c)) + 0.5; if (x > HDR_W) { ctx.moveTo(x, 0); ctx.lineTo(x, HDR_H); } }
@@ -351,9 +371,134 @@
     ctx.stroke();
   }
 
+  // ---------- Undo / redo (snapshots of the cell store) ----------
+  const undoStack = [], redoStack = [];
+  let lastSnap = "[]";
+  const snapshot = () => JSON.stringify({ c: Array.from(cells.entries()), r: rules });
+  function parseSnap(text) {
+    const o = JSON.parse(text);
+    return Array.isArray(o) ? { c: o, r: [] } : o;
+  }
+  function recordHistory() {
+    const now = snapshot();
+    if (now === lastSnap) return;
+    undoStack.push(lastSnap);
+    if (undoStack.length > 100) undoStack.shift();
+    redoStack.length = 0;
+    lastSnap = now;
+  }
+  function restoreSnap(s) {
+    const o = parseSnap(s);
+    cells.clear();
+    for (const [k, v] of o.c) cells.set(k, v);
+    rules.length = 0;
+    rules.push(...o.r);
+    lastSnap = s;
+    refresh();
+  }
+  function undo() {
+    if (!undoStack.length) return toast("Nothing to undo");
+    redoStack.push(lastSnap);
+    restoreSnap(undoStack.pop());
+  }
+  function redo() {
+    if (!redoStack.length) return toast("Nothing to redo");
+    undoStack.push(lastSnap);
+    restoreSnap(redoStack.pop());
+  }
+
+  // ---------- Conditional formatting ----------
+  function matchRule(q, v) {
+    if (q.op === "contains") return typeof v === "string" && v.toLowerCase().includes(String(q.a).toLowerCase());
+    if (typeof v !== "number") return false;
+    if (q.op === "gt") return v > q.a;
+    if (q.op === "lt") return v < q.a;
+    if (q.op === "eq") return v === q.a;
+    if (q.op === "between") return v >= q.a && v <= q.b;
+    return false;
+  }
+
+  // The last rule that covers the cell and matches its value wins
+  function ruleFor(r, c, v) {
+    for (let i = rules.length - 1; i >= 0; i--) {
+      const q = rules[i];
+      if (r < q.r1 || r > q.r2 || c < q.c1 || c > q.c2) continue;
+      if (matchRule(q, v)) return q;
+    }
+    return null;
+  }
+
+  function addRule(rule) {
+    if (sheetProtected) return toast("Sheet is protected. Unprotect it to edit.");
+    const R = range();
+    rules.push({ r1: R.r1, c1: R.c1, r2: R.r2, c2: R.c2, op: rule.op, a: rule.a, b: rule.b, fill: rule.fill || null, color: rule.color || null });
+    refresh();
+    toast("Rule applied to " + ref(R.r1, R.c1) + ":" + ref(R.r2, R.c2));
+  }
+
+  function clearRules() {
+    const R = range();
+    for (let i = rules.length - 1; i >= 0; i--) {
+      const q = rules[i];
+      if (!(q.r2 < R.r1 || q.r1 > R.r2 || q.c2 < R.c1 || q.c1 > R.c2)) rules.splice(i, 1);
+    }
+    refresh();
+    toast("Rules cleared from the selection");
+  }
+
+  // ---------- Insert / delete rows and columns ----------
+  // Inserts the selected number of lines before the first selected line, or deletes the selected lines.
+  // Cells, comments, formats, formulas (references) and conditional rules all move with the lines.
+  function editLines(axis, del) {
+    if (sheetProtected) return toast("Sheet is protected. Unprotect it to edit.");
+    const R = range();
+    const isRow = axis === "row";
+    const at = isRow ? R.r1 : R.c1;
+    const cnt = isRow ? R.r2 - R.r1 + 1 : R.c2 - R.c1 + 1;
+    const limit = isRow ? MAX_ROWS : MAX_COLS;
+    const mapPos = (p) => {
+      if (!del) return p >= at ? p + cnt : p;
+      if (p < at) return p;
+      if (p < at + cnt) return -1;
+      return p - cnt;
+    };
+    const mapRef = (rf) => {
+      const np = mapPos(isRow ? rf.row : rf.col);
+      if (np < 0 || np >= limit) return null;
+      return isRow ? { col: rf.col, row: np } : { col: np, row: rf.row };
+    };
+    const next = new Map();
+    for (const [k, cell] of cells) {
+      const [r, c] = k.split(",").map(Number);
+      const np = mapPos(isRow ? r : c);
+      if (np < 0 || np >= limit) continue;
+      const nk = isRow ? np + "," + c : r + "," + np;
+      next.set(nk, { ...cell, v: cell.v[0] === "=" ? QE.remapFormula(cell.v, mapRef) : cell.v });
+    }
+    cells.clear();
+    for (const [k, v] of next) cells.set(k, v);
+
+    // conditional rules follow the lines they cover
+    const lo = (p) => (del ? (p < at ? p : p < at + cnt ? at : p - cnt) : (p >= at ? p + cnt : p));
+    const hi = (p) => (del ? (p < at ? p : p < at + cnt ? at - 1 : p - cnt) : (p >= at ? p + cnt : p));
+    for (let i = rules.length - 1; i >= 0; i--) {
+      const q = rules[i];
+      if (isRow) { q.r1 = lo(q.r1); q.r2 = hi(q.r2); } else { q.c1 = lo(q.c1); q.c2 = hi(q.c2); }
+      if ((isRow ? q.r2 < q.r1 : q.c2 < q.c1)) rules.splice(i, 1);
+    }
+
+    extras = [];
+    S.ar = S.fr = isRow ? Math.min(at, limit - 1) : S.ar;
+    if (!isRow) S.ac = S.fc = Math.min(at, limit - 1);
+    refresh();
+    toast((del ? "Deleted " : "Inserted ") + cnt + (isRow ? " row" : " column") + (cnt === 1 ? "" : "s"));
+  }
+
   // ---------- Selection & refresh ----------
   function refresh() {
+    recordHistory();
     memo.clear();
+    for (const fn of listeners) fn();
     if (document.activeElement !== nameBox) nameBox.value = ref(S.ar, S.ac);
     if (document.activeElement !== fbInput) fbInput.value = activeCell() ? activeCell().v : "";
     updateRibbon();
@@ -387,8 +532,8 @@
     ed.style.width = COL_W + "px";
     ed.style.height = ROW_H + "px";
     ed.style.font = `${s.italic ? "italic " : ""}${s.bold ? "bold " : ""}${Math.round((s.size || DEFAULT_SIZE) * 1.2)}px ${s.font || DEFAULT_FONT}, Arial, sans-serif`;
-    ed.style.color = s.color || "#201f1e";
-    ed.style.background = s.fill || "#fff";
+    ed.style.color = s.color || pal.text;
+    ed.style.background = s.fill || pal.cell;
     ed.style.textAlign = s.ha || "left";
     ed.style.visibility = "visible";
     ed.value = initial !== undefined ? initial : (cell ? cell.v : "");
@@ -402,6 +547,7 @@
     if (!editing) return;
     editing = false;
     const v = ed.value;
+    ed.blur();
     ed.style.display = "none";
     setValue(S.ar, S.ac, v);
     if (dr || dc) moveFocus(dr, dc, false); else refresh();
@@ -410,6 +556,7 @@
   function cancelEdit() {
     if (!editing) return;
     editing = false;
+    ed.blur();
     ed.style.display = "none";
     refresh();
   }
@@ -427,7 +574,9 @@
     else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
   });
   ed.addEventListener("input", () => { fbInput.value = ed.value; });
-  ed.addEventListener("blur", () => commitEdit(0, 0));
+  ed.addEventListener("blur", () => {
+    if (editing && ed.style.display !== "none") commitEdit(0, 0);
+  });
 
   // ---------- Mouse ----------
   function pos(e) {
@@ -506,14 +655,14 @@
   function selectAll() { S.ar = 0; S.ac = 0; S.fr = MAX_ROWS - 1; S.fc = MAX_COLS - 1; refresh(); }
 
   document.addEventListener("keydown", (e) => {
-    if (editing) return;
+    if (editing || e.target === ed) return; // the cell editor handles its own keys
     const el = document.activeElement;
     if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA")) return;
 
     if (e.ctrlKey || e.metaKey) {
       const actions = {
         b: () => runCmd("bold"), i: () => runCmd("italic"), u: () => runCmd("underline"),
-        c: () => copyRange(false), x: () => copyRange(true), v: () => paste(), a: () => selectAll(), d: () => fillDown(), f: () => findSelect()
+        c: () => copyRange(false), x: () => copyRange(true), v: () => paste(), a: () => selectAll(), d: () => fillDown(), f: () => findSelect(), z: () => undo(), y: () => redo()
       };
       const act = actions[e.key.toLowerCase()];
       if (act) { e.preventDefault(); act(); }
@@ -649,237 +798,6 @@
   }
 
   // ---------- Ribbon ----------
-  const HOME_HTML = `
-  <div class="group">
-    <div class="group-body">
-      <button class="rb big" data-cmd="paste" title="Paste"><span class="ico">&#128203;</span><span>Paste</span></button>
-      <div class="stack">
-        <button class="sm" data-cmd="cut" title="Cut (Ctrl+X)">&#9986; Cut</button>
-        <button class="sm" data-cmd="copy" title="Copy (Ctrl+C)">&#10697; Copy</button>
-        <button class="sm" data-cmd="painter" data-tgl="painter" title="Format Painter">&#128396; Format Painter</button>
-      </div>
-    </div>
-    <div class="group-name">Clipboard</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body" style="flex-direction:column;align-items:flex-start;justify-content:center;gap:4px">
-      <div class="row">
-        <select id="fontFamily" class="sel w-font" data-cmd="font" title="Font">
-          <option>Calibri</option><option>Arial</option><option>Times New Roman</option>
-          <option>Courier New</option><option>Verdana</option><option>Georgia</option>
-        </select>
-        <select id="fontSize" class="sel w-size" data-cmd="size" title="Font size">
-          <option>8</option><option>9</option><option>10</option><option selected>11</option><option>12</option>
-          <option>14</option><option>16</option><option>18</option><option>20</option><option>24</option>
-          <option>28</option><option>36</option><option>48</option><option>72</option>
-        </select>
-        <button class="sm" data-cmd="sizeUp" title="Increase font size">A&#9650;</button>
-        <button class="sm" data-cmd="sizeDown" title="Decrease font size">A&#9660;</button>
-      </div>
-      <div class="row">
-        <button class="sm" data-cmd="bold" data-tgl="bold" title="Bold (Ctrl+B)"><b>B</b></button>
-        <button class="sm" data-cmd="italic" data-tgl="italic" title="Italic (Ctrl+I)"><i>I</i></button>
-        <button class="sm" data-cmd="underline" data-tgl="underline" title="Underline (Ctrl+U)"><u>U</u></button>
-        <button class="sm" data-cmd="border" title="Borders">&#9638; Borders</button>
-        <button class="sm" data-cmd="fill" title="Fill color"><span class="swatch" style="background:#ffff00"></span>Fill</button>
-        <button class="sm" data-cmd="fontColor" title="Font color"><span class="ico-a">A</span>Color</button>
-      </div>
-    </div>
-    <div class="group-name">Font</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body" style="flex-direction:column;align-items:flex-start;justify-content:center;gap:4px">
-      <div class="row">
-        <button class="sm" data-cmd="va" data-val="top" title="Top align">Top</button>
-        <button class="sm" data-cmd="va" data-val="middle" title="Middle align">Middle</button>
-        <button class="sm" data-cmd="va" data-val="bottom" title="Bottom align">Bottom</button>
-        <button class="sm" data-cmd="wrap" data-tgl="wrap" title="Wrap Text">Wrap Text</button>
-      </div>
-      <div class="row">
-        <button class="sm" data-cmd="ha" data-val="left" title="Align left">Left</button>
-        <button class="sm" data-cmd="ha" data-val="center" title="Center">Center</button>
-        <button class="sm" data-cmd="ha" data-val="right" title="Align right">Right</button>
-        <button class="sm" data-cmd="merge" title="Merge &amp; Center">Merge &amp; Center</button>
-      </div>
-    </div>
-    <div class="group-name">Alignment</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body" style="flex-direction:column;align-items:flex-start;justify-content:center;gap:4px">
-      <select id="numFmt" class="sel w-num" data-cmd="nf" title="Number format">
-        <option value="general">General</option><option value="number">Number</option>
-        <option value="currency">Currency</option><option value="percent">Percentage</option>
-      </select>
-      <div class="row">
-        <button class="sm" data-cmd="nf" data-val="currency" title="Currency">$</button>
-        <button class="sm" data-cmd="nf" data-val="percent" title="Percent Style">%</button>
-        <button class="sm" data-cmd="nf" data-val="number" title="Comma Style">,</button>
-        <button class="sm" data-cmd="decUp" title="Increase decimal">.0&#8594;</button>
-        <button class="sm" data-cmd="decDown" title="Decrease decimal">&#8592;.0</button>
-      </div>
-    </div>
-    <div class="group-name">Number</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body stack-col">
-      <button class="sm wide" data-cmd="condFmt">Conditional Formatting</button>
-      <button class="sm wide" data-cmd="fmtTable">Format as Table</button>
-      <button class="sm wide" data-cmd="cellStyles">Cell Styles</button>
-    </div>
-    <div class="group-name">Styles</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="insert" title="Insert cells"><span class="ico">&#10133;</span><span>Insert</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="delete" title="Delete cells"><span class="ico">&#10134;</span><span>Delete</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="format" title="Format"><span class="ico">&#9638;</span><span>Format</span></button>
-      </div>
-    </div>
-    <div class="group-name">Cells</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body stack-col">
-      <button class="sm wide" data-cmd="autoSum" title="AutoSum">&#8721; AutoSum</button>
-      <button class="sm wide" data-cmd="fillDown" title="Fill">Fill</button>
-      <button class="sm wide" data-cmd="clearAll" title="Clear values and formats">Clear</button>
-      <button class="sm wide" data-cmd="sort" title="Sort &amp; Filter">Sort &amp; Filter</button>
-      <button class="sm wide" data-cmd="find" title="Find &amp; Select">Find &amp; Select</button>
-    </div>
-    <div class="group-name">Editing</div>
-  </div>`;
-
-  const INSERT_HTML = `
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="pivot" title="PivotTable"><span class="ico">&#9638;</span><span>PivotTable</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="recPivot" title="Recommended PivotTables"><span class="ico">&#9783;</span><span>Recommended PivotTables</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="table" title="Format selection as a table"><span class="ico">&#9638;</span><span>Table</span></button>
-      </div>
-    </div>
-    <div class="group-name">Tables</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="pictures" title="Pictures"><span class="ico">&#128444;</span><span>Pictures</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="onlinePics" title="Online Pictures"><span class="ico">&#127760;</span><span>Online Pictures</span></button>
-      </div>
-    </div>
-    <div class="group-name">Illustrations</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="store" title="Store"><span class="ico">&#127968;</span><span>Store</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="myAddins" title="My Add-ins"><span class="ico">&#10010;</span><span>My Add-ins</span></button>
-      </div>
-    </div>
-    <div class="group-name">Add-ins</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="recCharts" title="Recommended Charts"><span class="ico">&#128202;</span><span>Recommended Charts</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="colChart" title="Column or Bar chart"><span class="ico">&#128200;</span><span>Column</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="pivotChart" title="PivotChart"><span class="ico">&#9638;</span><span>PivotChart</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="map3d" title="3D Map"><span class="ico">&#127758;</span><span>3D Map</span></button>
-      </div>
-    </div>
-    <div class="group-name">Charts</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="sparkLine" title="Line sparkline"><span class="ico">&#8767;</span><span>Line</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="sparkColumn" title="Column sparkline"><span class="ico">&#9646;</span><span>Column</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="sparkWinLoss" title="Win/Loss sparkline"><span class="ico">&#9632;</span><span>Win/Loss</span></button>
-      </div>
-    </div>
-    <div class="group-name">Sparklines</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="slicer" title="Slicer"><span class="ico">&#9776;</span><span>Slicer</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="timeline" title="Timeline"><span class="ico">&#128197;</span><span>Timeline</span></button>
-      </div>
-    </div>
-    <div class="group-name">Filters</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="hyperlink" title="Insert hyperlink"><span class="ico">&#128279;</span><span>Hyperlink</span></button>
-      </div>
-    </div>
-    <div class="group-name">Links</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="textBox" title="Text Box"><span class="ico">&#9633;</span><span>Text Box</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="headerFooter" title="Header &amp; Footer"><span class="ico">&#9776;</span><span>Header &amp; Footer</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="wordArt" title="WordArt"><span class="ico">A</span><span>WordArt</span></button>
-      </div>
-    </div>
-    <div class="group-name">Text</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="equation" title="Equation"><span class="ico">&pi;</span><span>Equation</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="symbol" title="Symbol"><span class="ico">&Omega;</span><span>Symbol</span></button>
-      </div>
-    </div>
-    <div class="group-name">Symbols</div>
-  </div>`;
-
   // Table: header row in green with bold text, banded rows below
   function formatAsTable() {
     const R = range();
@@ -887,8 +805,8 @@
     forRange(R, (r, c) => {
       const cell = getOrCreate(r, c);
       const header = r === R.r1;
-      cell.s.fill = header ? "#107c41" : ((r - R.r1) % 2 ? "#ffffff" : "#e9f3ec");
-      cell.s.color = header ? "#ffffff" : "#201f1e";
+      cell.s.fill = header ? pal.accent : ((r - R.r1) % 2 ? "#ffffff" : "#e9f3ec");
+      cell.s.color = header ? "#ffffff" : pal.text;
       if (header) cell.s.bold = true;
     });
     refresh();
@@ -907,189 +825,6 @@
     cell.s.underline = true;
     refresh();
   }
-
-  const FORMULAS_HTML = `
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="insertFunction" title="Insert Function"><span class="ico"><i>fx</i></span><span>Insert Function</span></button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="autoSum" title="AutoSum">&#8721; AutoSum &#9662;</button>
-        <button class="sm wide" data-cmd="recentlyUsed" title="Recently Used">&#9733; Recently Used &#9662;</button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="financial" title="Financial">&#36; Financial &#9662;</button>
-        <button class="sm wide" data-cmd="logical" title="Logical">? Logical &#9662;</button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="textFn" title="Text">A Text &#9662;</button>
-        <button class="sm wide" data-cmd="dateTime" title="Date &amp; Time">&#128197; Date &amp; Time &#9662;</button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="lookup" title="Lookup &amp; Reference">&#128269; Lookup &amp; Reference &#9662;</button>
-        <button class="sm wide" data-cmd="mathTrig" title="Math &amp; Trig">&#960; Math &amp; Trig &#9662;</button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="moreFunctions" title="More Functions"><span class="ico">&#9783;</span><span>More Functions</span></button>
-      </div>
-    </div>
-    <div class="group-name">Function Library</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="nameManager" title="Name Manager"><span class="ico">&#127991;</span><span>Name Manager</span></button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="defineName" title="Define Name">Define Name &#9662;</button>
-        <button class="sm wide" data-cmd="useInFormula" title="Use in Formula">Use in Formula &#9662;</button>
-        <button class="sm wide" data-cmd="createFromSelection" title="Create from Selection">Create from Selection</button>
-      </div>
-    </div>
-    <div class="group-name">Defined Names</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="tracePrecedents" title="Trace Precedents">Trace Precedents</button>
-        <button class="sm wide" data-cmd="traceDependents" title="Trace Dependents">Trace Dependents</button>
-        <button class="sm wide" data-cmd="removeArrows" title="Remove Arrows">Remove Arrows &#9662;</button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="showFormulas" title="Show Formulas">Show Formulas</button>
-        <button class="sm wide" data-cmd="errorChecking" title="Error Checking">Error Checking &#9662;</button>
-        <button class="sm wide" data-cmd="evaluateFormula" title="Evaluate Formula">Evaluate Formula</button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="watchWindow" title="Watch Window"><span class="ico">&#128065;</span><span>Watch Window</span></button>
-      </div>
-    </div>
-    <div class="group-name">Formula Auditing</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="calcOptions" title="Calculation Options"><span class="ico">&#9881;</span><span>Calculation Options &#9662;</span></button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="calcNow" title="Calculate Now">Calculate Now</button>
-        <button class="sm wide" data-cmd="calcSheet" title="Calculate Sheet">Calculate Sheet</button>
-      </div>
-    </div>
-    <div class="group-name">Calculation</div>
-  </div>`;
-
-  const DATA_HTML = `
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="fromAccess" title="From Access"><span class="ico">&#128452;</span><span>From Access</span></button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="fromWeb">From Web</button>
-        <button class="sm wide" data-cmd="fromText">From Text</button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="fromOther">From Other Sources &#9662;</button>
-        <button class="sm wide" data-cmd="existingConn">Existing Connections</button>
-      </div>
-    </div>
-    <div class="group-name">Get External Data</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="newQuery" title="New Query"><span class="ico">&#9998;</span><span>New Query &#9662;</span></button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="showQueries">Show Queries</button>
-        <button class="sm wide" data-cmd="fromTable">From Table</button>
-        <button class="sm wide" data-cmd="recentSources">Recent Sources</button>
-      </div>
-    </div>
-    <div class="group-name">Get &amp; Transform</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="refreshAll" title="Refresh All"><span class="ico">&#8635;</span><span>Refresh All &#9662;</span></button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="connections">Connections</button>
-        <button class="sm wide" data-cmd="properties">Properties</button>
-        <button class="sm wide" data-cmd="editLinks">Edit Links</button>
-      </div>
-    </div>
-    <div class="group-name">Connections</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="sortAsc" title="Sort A to Z"><span class="ico">&#8595;A</span><span>Sort A&#8594;Z</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="sortDesc" title="Sort Z to A"><span class="ico">&#8593;Z</span><span>Sort Z&#8594;A</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="filter" title="Filter"><span class="ico">&#9660;</span><span>Filter</span></button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="clearSort">Clear</button>
-        <button class="sm wide" data-cmd="reapply">Reapply</button>
-        <button class="sm wide" data-cmd="advanced">Advanced</button>
-      </div>
-    </div>
-    <div class="group-name">Sort &amp; Filter</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="textToColumns" title="Text to Columns"><span class="ico">&#9616;</span><span>Text to Columns</span></button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="flashFill">Flash Fill</button>
-        <button class="sm wide" data-cmd="removeDuplicates">Remove Duplicates</button>
-        <button class="sm wide" data-cmd="dataValidation">Data Validation &#9662;</button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="consolidate">Consolidate</button>
-        <button class="sm wide" data-cmd="relationships">Relationships</button>
-        <button class="sm wide" data-cmd="manageModel">Manage Data Model</button>
-      </div>
-    </div>
-    <div class="group-name">Data Tools</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="whatIf" title="What-If Analysis"><span class="ico">&#63;</span><span>What-If Analysis &#9662;</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="forecastSheet" title="Forecast Sheet"><span class="ico">&#128200;</span><span>Forecast Sheet</span></button>
-      </div>
-    </div>
-    <div class="group-name">Forecast</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="group">Group &#9662;</button>
-        <button class="sm wide" data-cmd="ungroup">Ungroup &#9662;</button>
-        <button class="sm wide" data-cmd="subtotal">Subtotal</button>
-      </div>
-    </div>
-    <div class="group-name">Outline</div>
-  </div>`;
 
   // Sort the selected rows by the active cell's column. Blanks always go last.
   function sortRange(asc) {
@@ -1223,74 +958,6 @@
     toast(removed + " duplicate row(s) removed");
   }
 
-  const REVIEW_HTML = `
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="spelling" title="Spelling"><span class="ico">ABC</span><span>Spelling</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="thesaurus" title="Thesaurus"><span class="ico">&#128214;</span><span>Thesaurus</span></button>
-      </div>
-    </div>
-    <div class="group-name">Proofing</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="smartLookup" title="Smart Lookup"><span class="ico">&#9432;</span><span>Smart Lookup</span></button>
-      </div>
-    </div>
-    <div class="group-name">Insights</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="translate" title="Translate"><span class="ico">&#127760;</span><span>Translate</span></button>
-      </div>
-    </div>
-    <div class="group-name">Language</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="newComment" title="New Comment"><span class="ico">&#128172;</span><span>New Comment</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="deleteComment" title="Delete Comment"><span class="ico">&#10006;</span><span>Delete</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="prevComment" title="Previous Comment"><span class="ico">&#8592;</span><span>Previous</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="nextComment" title="Next Comment"><span class="ico">&#8594;</span><span>Next</span></button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="showHideComment" title="Show or hide the active cell comment">Show/Hide Comment</button>
-        <button class="sm wide" data-cmd="showAllComments" data-tgl-review="showAll" title="Show all comments">Show All Comments</button>
-        <button class="sm wide" data-cmd="showInk" title="Show Ink">Show Ink</button>
-      </div>
-    </div>
-    <div class="group-name">Comments</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="protectSheet" data-tgl-review="protect" title="Protect Sheet">Protect Sheet</button>
-        <button class="sm wide" data-cmd="protectWorkbook" title="Protect Workbook">Protect Workbook</button>
-        <button class="sm wide" data-cmd="shareWorkbook" title="Share Workbook">Share Workbook</button>
-        <button class="sm wide" data-cmd="protectShare" title="Protect and Share Workbook">Protect and Share Workbook</button>
-        <button class="sm wide" data-cmd="allowEdit" title="Allow Users to Edit Ranges">Allow Users to Edit Ranges</button>
-        <button class="sm wide" data-cmd="trackChanges" title="Track Changes">Track Changes &#9662;</button>
-      </div>
-    </div>
-    <div class="group-name">Changes</div>
-  </div>`;
-
   // Review state
   const reviewOpt = { showAll: false };
   let sheetProtected = false;
@@ -1344,204 +1011,8 @@
   // Sheet view options (used by draw)
   const sheetOpt = { gridView: true, gridPrint: false, headingsView: true, headingsPrint: false, formulaBar: true, showFormulas: false };
 
-  const VIEW_HTML = `
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="normalView" title="Normal"><span class="ico">&#9638;</span><span>Normal</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="pageBreak" title="Page Break Preview"><span class="ico">&#9783;</span><span>Page Break Preview</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="pageLayoutView" title="Page Layout"><span class="ico">&#9633;</span><span>Page Layout</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="customViews" title="Custom Views"><span class="ico">&#9776;</span><span>Custom Views</span></button>
-      </div>
-    </div>
-    <div class="group-name">Workbook Views</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body" style="flex-direction:column;align-items:flex-start;justify-content:center;gap:4px">
-      <button class="sm" data-cmd="ruler" title="Ruler" style="width:110px;justify-content:flex-start">Ruler</button>
-      <button class="sm on" data-cmd="sheetOpt" data-val="formulaBar" title="Formula Bar" style="width:110px;justify-content:flex-start">Formula Bar</button>
-      <button class="sm on" data-cmd="sheetOpt" data-val="gridView" title="Gridlines" style="width:110px;justify-content:flex-start">Gridlines</button>
-      <button class="sm on" data-cmd="sheetOpt" data-val="headingsView" title="Headings" style="width:110px;justify-content:flex-start">Headings</button>
-    </div>
-    <div class="group-name">Show</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="zoom" title="Zoom"><span class="ico">&#128269;</span><span>Zoom</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="zoom100" title="100%"><span class="ico">100%</span><span>100%</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="zoomSelection" title="Zoom to Selection"><span class="ico">&#9633;</span><span>Zoom to Selection</span></button>
-      </div>
-    </div>
-    <div class="group-name">Zoom</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="newWindow" title="New Window"><span class="ico">&#9633;</span><span>New Window</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="arrangeAll" title="Arrange All"><span class="ico">&#9638;</span><span>Arrange All</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="freezePanes" title="Freeze Panes"><span class="ico">&#10053;</span><span>Freeze Panes</span></button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="split">Split</button>
-        <button class="sm wide" data-cmd="hideWin">Hide</button>
-        <button class="sm wide" data-cmd="unhide">Unhide</button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="sideBySide">View Side by Side</button>
-        <button class="sm wide" data-cmd="syncScroll">Synchronous Scrolling</button>
-        <button class="sm wide" data-cmd="resetWindow">Reset Window Position</button>
-      </div>
-    </div>
-    <div class="group-name">Window</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="switchWindows" title="Switch Windows"><span class="ico">&#8644;</span><span>Switch Windows</span></button>
-      </div>
-    </div>
-    <div class="group-name">Switch Window</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="macros" title="Macros"><span class="ico">&#9654;</span><span>Macros</span></button>
-      </div>
-    </div>
-    <div class="group-name">Macros</div>
-  </div>`;
-
-  const PAGE_LAYOUT_HTML = `
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="themes" title="Themes"><span class="ico">&#127912;</span><span>Themes</span></button>
-      </div>
-      <div class="stack-col">
-        <button class="sm wide" data-cmd="colorsTheme">Colors</button>
-        <button class="sm wide" data-cmd="fontsTheme">Fonts</button>
-        <button class="sm wide" data-cmd="effectsTheme">Effects</button>
-      </div>
-    </div>
-    <div class="group-name">Themes</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="margins" title="Margins"><span class="ico">&#9635;</span><span>Margins</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="orientation" title="Orientation"><span class="ico">&#8635;</span><span>Orientation</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="paperSize" title="Size"><span class="ico">&#9647;</span><span>Size</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="printArea" title="Print Area"><span class="ico">&#9633;</span><span>Print Area</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="breaks" title="Breaks"><span class="ico">&#8863;</span><span>Breaks</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="background" title="Background"><span class="ico">&#128444;</span><span>Background</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="printTitles" title="Print Titles"><span class="ico">&#9776;</span><span>Print Titles</span></button>
-      </div>
-    </div>
-    <div class="group-name">Page Setup</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body" style="flex-direction:column;align-items:flex-start;justify-content:center;gap:4px">
-      <div class="row"><span style="width:52px">Width:</span>
-        <select class="sel w-num" data-cmd="scaleW" title="Width"><option>Automatic</option><option>1 page</option><option>2 pages</option></select>
-      </div>
-      <div class="row"><span style="width:52px">Height:</span>
-        <select class="sel w-num" data-cmd="scaleH" title="Height"><option>Automatic</option><option>1 page</option><option>2 pages</option></select>
-      </div>
-      <div class="row"><span style="width:52px">Scale:</span>
-        <select class="sel w-num" data-cmd="scale" title="Scale"><option>100%</option><option>75%</option><option>50%</option><option>150%</option></select>
-      </div>
-    </div>
-    <div class="group-name">Scale to Fit</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body" style="align-items:flex-start;gap:14px">
-      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">
-        <span style="font-size:12px">Gridlines</span>
-        <div class="row">
-          <button class="sm" data-cmd="sheetOpt" data-val="gridView" title="Show gridlines on screen">View</button>
-          <button class="sm" data-cmd="sheetOpt" data-val="gridPrint" title="Print gridlines">Print</button>
-        </div>
-      </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">
-        <span style="font-size:12px">Headings</span>
-        <div class="row">
-          <button class="sm" data-cmd="sheetOpt" data-val="headingsView" title="Show headings on screen">View</button>
-          <button class="sm" data-cmd="sheetOpt" data-val="headingsPrint" title="Print headings">Print</button>
-        </div>
-      </div>
-    </div>
-    <div class="group-name">Sheet Options</div>
-  </div>
-
-  <div class="group">
-    <div class="group-body">
-      <div class="stack">
-        <button class="rb" data-cmd="bringForward" title="Bring Forward"><span class="ico">&#11014;</span><span>Bring Forward</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="sendBackward" title="Send Backward"><span class="ico">&#11015;</span><span>Send Backward</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="selectionPane" title="Selection Pane"><span class="ico">&#9783;</span><span>Selection Pane</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="align" title="Align"><span class="ico">&#8801;</span><span>Align</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="group" title="Group"><span class="ico">&#9635;</span><span>Group</span></button>
-      </div>
-      <div class="stack">
-        <button class="rb" data-cmd="rotate" title="Rotate"><span class="ico">&#8635;</span><span>Rotate</span></button>
-      </div>
-    </div>
-    <div class="group-name">Arrange</div>
-  </div>`;
-
   function renderRibbon(tab) {
-    const html = tab === "Home" ? HOME_HTML
-      : tab === "Insert" ? INSERT_HTML
-      : tab === "Page Layout" ? PAGE_LAYOUT_HTML
-      : tab === "Formulas" ? FORMULAS_HTML
-      : tab === "Data" ? DATA_HTML
-      : tab === "Review" ? REVIEW_HTML
-      : tab === "View" ? VIEW_HTML
-      : `<div class="placeholder">${tab} tab: coming in the next update</div>`;
-    ribbon.innerHTML = html;
+    ribbon.innerHTML = window.QuadraUI ? window.QuadraUI.ribbonHtml(tab) : "";
     updateRibbon();
   }
 
@@ -1642,6 +1113,8 @@
       case "calcSheet":
         refresh();
         return toast("Formulas are always up to date");
+      case "undo": return undo();
+      case "redo": return redo();
       case "fillDown": return fillDown();
       case "find": return findSelect();
       case "removeDuplicates": return removeDuplicates();
@@ -1651,7 +1124,9 @@
       case "hyperlink": return insertHyperlink();
       case "autoSum": return autoSum();
       case "clearAll": return clearAll();
-      default: return toast("Coming soon: " + cmd);
+      default:
+        if (window.QuadraUI && window.QuadraUI.command(cmd, val)) return;
+        return toast("Coming soon: " + cmd);
     }
   }
 
@@ -1698,7 +1173,40 @@
   });
 
   updateSizer();
+  window.QuadraCore = {
+    cells, sel: S, range, getCell, getOrCreate, setValue, cellValue, displayText,
+    refresh, toast, applyStyle, forTargets, ensureVisible, sheetOpt, reviewOpt, pal,
+    openEditor, run: runCmd, clearAll, clearValues, copyRange, paste,
+    getExtras: () => extras,
+    isProtected: () => sheetProtected,
+    setProtected: (v) => { sheetProtected = !!v; refresh(); },
+    setPalette: (p) => { Object.assign(pal, p); requestDraw(); },
+    onChange: (fn) => { listeners.push(fn); },
+    serialize: snapshot,
+    load: (json) => {
+      const o = parseSnap(json);
+      cells.clear();
+      for (const [k, v] of o.c) cells.set(k, v);
+      rules.length = 0;
+      rules.push(...o.r);
+      lastSnap = snapshot();
+      undoStack.length = 0;
+      redoStack.length = 0;
+      refresh();
+    },
+    clearSheet: () => {
+      cells.clear();
+      rules.length = 0;
+      extras = [];
+      S.ar = S.ac = S.fr = S.fc = 0;
+      refresh();
+    },
+    undo, redo, requestDraw, relayout: resize,
+    addRule, clearRules, editLines, ruleFor, rules
+  };
+
   renderRibbon("Home");
   resize();
   refresh();
+  if (window.QuadraUI && window.QuadraUI.init) window.QuadraUI.init(window.QuadraCore);
 })();
