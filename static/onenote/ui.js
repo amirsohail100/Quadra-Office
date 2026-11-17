@@ -9,8 +9,8 @@ Home:[['Undo',[B('Undo','undo','undo'),B('Redo','redo','redo')]],
 ['Tags',[B('To Do','tag:todo','tag'),B('Important','tag:imp','tag'),B('Question','tag:q','tag')]],
 ['Spelling',[B('Spelling','spell','abc')]],['Dictate',[B('Dictate','dictate','mic')]],['Feed',[B('Feed','feed','feed')]],['Find',[B('Find','find','search')]]],
 Insert:[['Notebook',[B('New page','newPage','plus'),B('New Section','newSec','plus')]],['Tables',[B('Table','table','table')]],
-['Pictures',[B('From Device','imgDev','image'),NA('From Camera'),B('From Web','imgWeb','image')]],['Files',[NA('Insert File Printout'),NA('Insert File Attachment')]],
-['Add-ins',[NA('Office Add-ins')]],['Links',[B('Insert Link','link','link')]],['Audio',[NA('Audio')]],['Symbols',[B('Symbol','sym','omega')]],['Emoji',[B('Emoji','emoji','smile')]],['Time',[B('Date & Time','dt','clock')]]],
+['Pictures',[B('From Device','imgDev','image'),B('From Camera','camera','camera'),B('From Web','imgWeb','image')]],['Files',[B('Insert File Printout','printout','printout'),B('Insert File Attachment','attach','attach')]],
+['Add-ins',[B('Office Add-ins','addins','addin')]],['Links',[B('Insert Link','link','link')]],['Audio',[B('Audio','audio','audio')]],['Symbols',[B('Symbol','sym','omega')]],['Emoji',[B('Emoji','emoji','smile')]],['Time',[B('Date & Time','dt','clock')]]],
 Draw:[['Tools',[B('Type','type','type',{act:1}),NA('Lasso Select'),NA('Eraser'),NA('Pen'),NA('Highlighter'),NA('Draw with Touch')]],['Color',[NA('Black'),NA('Blue'),NA('Dark Green'),NA('Red'),NA('Ink Color')]],['Style',[NA('Thickness')]],['Ruler',[NA('Ruler')]]],
 View:[['Notebook Views',[NA('Immersive Reader')]],['Zoom',[{zoom:1},B('Zoom to 100%','zoom100','zoom')]],['Page Setup',[B('Page Color','pageColor','doc'),B('Rule Lines','lines','lines')]],['Authors',[NA('Show Authors')]],['Versions',[B('Page Versions','versions','file'),NA('Deleted Notes')]],['Accessibility',[NA('Check Accessibility')]]],
 Help:[['Help & Support',[B('Help','help','help'),NA('Give Feedback to Microsoft')]]]};
@@ -18,7 +18,7 @@ const $=s=>document.querySelector(s),dlg=$('#dlg');
 function say(h){$('#dlgBody').innerHTML=h;if(!dlg.open)dlg.showModal()}
 const na=l=>say(`<b>${l}</b><p>This feature is not available in this version of Quadra OneNote.</p>`);
 $('#dlgOk').onclick=()=>dlg.close();
-function ins(html){const e=target();if(!e){say('Click on the page to start a text box first.');return}e.focus();document.execCommand('insertHTML',false,html);e.dispatchEvent(new Event('input'))}
+function ins(html){const e=target()||App.newText(60,150);if(!e){say('This notebook is in Viewing mode. Switch to Editing to insert.');return}e.focus();document.execCommand('insertHTML',false,html);e.dispatchEvent(new Event('input'))}
 function pick(f,cb){const i=document.createElement('input');i.type='file';i.accept=f;i.onchange=()=>i.files[0]&&cb(i.files[0]);i.click()}
 const ACT={newPage(){const p=QEngine.newPage(App.sec());App.state.page=p.id;listAll();App.save()},
  newSec(){const s=QEngine.newSection(App.state.nb);App.state.sec=s.id;App.state.page=s.pages[0].id;listAll();App.save()},
@@ -35,7 +35,7 @@ const ACT={newPage(){const p=QEngine.newPage(App.sec());App.state.page=p.id;list
  help(){say('<b>Shortcuts</b><p>Ctrl+B / I / U, Ctrl+Z / Y, Tab / Shift+Tab, Delete removes the selected box (click its top bar). Click empty page to add a text box.</p>')},
  type(){}};
 function tag(k){const m={todo:'<input type="checkbox"> ',imp:'⭐ ',q:'❓ '};ins(m[k])}
-function run(b,x){const c=b.c;if(c.startsWith('na:'))return na(c.slice(3));if(c.startsWith('menu:'))return colorMenu(x,c.slice(5));if(ACT[c])return ACT[c]();if(c.startsWith('tag:'))return tag(c.slice(4));
+function run(b,x){const c=b.c;if(c.startsWith('na:'))return na(c.slice(3));if(c.startsWith('menu:'))return colorMenu(x,c.slice(5));if(ACT[c])return ACT[c](x);if(c.startsWith('tag:'))return tag(c.slice(4));
  const[k,v]=c.split(':');if(k==='paste')return navigator.clipboard.readText().then(t=>ins(esc(t).replace(/\n/g,'<br>'))).catch(()=>say('<b>Paste</b><p>The browser blocked clipboard access. Use Ctrl+V to paste.</p>'));
  const e=target();if(!e){say('Click inside a text box first.');return}document.execCommand(k,false,v);e.dispatchEvent(new Event('input'));updateState()}
 function renderRibbon(tab){const r=$('#ribbon');r.innerHTML='';(RIB[tab]||[]).forEach(([n,bs])=>{const g=document.createElement('div');g.className='grp';const row=document.createElement('div');row.className='row';
@@ -55,19 +55,14 @@ function listAll(){const st=App.state,sl=$('#secList'),pl=$('#pageList');sl.inne
  $('#nbName').textContent=$('#nbName2').textContent=st.nb.name}
 App.listPages=listAll;
 function setZoom(z){App.state.zoom=z;$('#canvas').style.zoom=z/100;document.querySelectorAll('#zoomSel').forEach(s=>s.value=z);App.save()}
-function backstage(){const d=document.createElement('div');d.id='backstage';d.innerHTML='<div class="side"><button id="bsBack">← Back</button><button data-a="new">New notebook</button><button data-a="save">Save backup (JSON)</button><button data-a="restore">Restore backup</button><button data-a="txt">Export page as .txt</button><button data-a="pdf">Export page as PDF</button></div><div style="padding:30px"><h2>'+App.state.nb.name+'</h2><p>Backup, restore and export your notebook.</p></div>';document.body.appendChild(d);
- const dl=(n,t,m)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:m}));a.download=n;a.click()};
- d.onclick=e=>{const a=e.target.dataset.a;if(e.target.id==='bsBack'){d.remove();return}if(!a)return;
-  if(a==='new'){const n=prompt('Notebook name','New Notebook');if(n){const nb=QEngine.create(n);Object.assign(App.state,{nb,sec:nb.sections[0].id,page:nb.sections[0].pages[0].id});App.render();listAll();App.save();d.remove()}}
-  if(a==='save')dl(App.state.nb.name+'.json',JSON.stringify(App.state.nb),'application/json');
-  if(a==='restore')pick('.json',f=>f.text().then(t=>{try{const nb=JSON.parse(t);if(!nb.sections)throw 0;Object.assign(App.state,{nb,sec:nb.sections[0].id,page:nb.sections[0].pages[0].id});App.render();listAll();App.save();d.remove()}catch(x){say('Not a valid backup file.')}}));
-  if(a==='txt'){const p=App.page();dl((p.title||'page')+'.txt',p.title+'\n\n'+p.items.map(i=>QEngine.plain(i.html)).join('\n'),'text/plain')}
-  if(a==='pdf'){d.remove();print()}}}
+
 function menu(btn,items){const m=$('#menu');m.innerHTML='';items.forEach(([t,f,col])=>{const b=document.createElement('button');b.textContent=t;if(col)b.innerHTML='<span style="display:inline-block;width:12px;height:12px;margin-right:8px;border:1px solid #888;background:'+col+'"></span>'+t;b.onclick=()=>{m.hidden=true;f()};m.appendChild(b)});m.hidden=false;const r=btn.getBoundingClientRect();
  m.style.left=Math.min(r.left,innerWidth-m.offsetWidth-8)+'px';m.style.top=(r.bottom+m.offsetHeight>innerHeight?Math.max(0,r.top-m.offsetHeight):r.bottom)+'px'}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let lastEd=null,lastRange=null,painter=null,rec=null;
-function target(){const e=App.focused();if(e)return e;if(lastEd&&lastEd.isConnected){lastEd.focus();const s=getSelection();s.removeAllRanges();if(lastRange)s.addRange(lastRange);return lastEd}return null}
+function target(){const e=App.focused(),s=getSelection();if(e&&s.rangeCount&&e.contains(s.anchorNode))return e;
+ const t=e||(lastEd&&lastEd.isConnected?lastEd:null);if(!t)return null;t.focus();s.removeAllRanges();
+ if(t===lastEd&&lastRange&&t.contains(lastRange.startContainer))s.addRange(lastRange);else{const r=document.createRange();r.selectNodeContents(t);r.collapse(false);s.addRange(r)}return t}
 const STATE=['bold','italic','underline','strikeThrough','subscript','insertUnorderedList','insertOrderedList','justifyLeft','justifyCenter','justifyRight'];
 function updateState(){if(!App.focused())return;document.querySelectorAll('#ribbon [data-c]').forEach(x=>{if(STATE.includes(x.dataset.c))try{x.classList.toggle('act',document.queryCommandState(x.dataset.c))}catch(e){}});
  const S=n=>document.querySelector('#ribbon select[title='+n+']'),has=(s,v)=>[...s.options].some(o=>o.value===v);let s;
@@ -112,4 +107,57 @@ function init(){App.init();
   d.onclick=()=>{App.state.sec=h.sec;App.state.page=h.page;$('#railNb').click();listAll();App.render();App.save()};r.appendChild(d)})};
  document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key.toLowerCase()==='f'){e.preventDefault();ACT.find()}});
  window.__app=App}
+// ---- v0.4: Insert and File features ----
+const spot=()=>({x:60,y:150+App.page().items.length*70});
+function ask(title,body,okLabel,fn){say('<b>'+title+'</b>'+body+'<p><button class="b" id="askOk">'+okLabel+'</button></p>');const f=dlg.querySelector('input');if(f)f.focus();dlg.querySelectorAll('input').forEach(i=>i.onkeydown=e=>{if(e.key==='Enter')$('#askOk').click()});$('#askOk').onclick=()=>{dlg.close();fn()}}
+function readFile(f,cb){const r=new FileReader();r.onload=()=>cb(r.result);r.readAsDataURL(f)}
+function shrink(src,cb){const i=new Image();i.onload=()=>{const k=Math.min(1,1200/Math.max(i.width,i.height));if(k===1&&src.length<400000)return cb(src,i.width);const c=document.createElement('canvas');c.width=Math.round(i.width*k);c.height=Math.round(i.height*k);c.getContext('2d').drawImage(i,0,0,c.width,c.height);cb(c.toDataURL('image/jpeg',.85),c.width)};i.onerror=()=>cb(src,300);i.src=src}
+function placeImage(src,w){const s=spot(),it=QEngine.addImage(App.page(),s.x,s.y,src);it.w=Math.max(60,Math.min(w||300,420));App.render();App.save()}
+function addFileItem(f,kind){if(f.size>1500000)return say('<b>File too large</b><p>Files up to 1.5 MB can be stored in the notebook.</p>');readFile(f,d=>{const s=spot();QEngine.addFile(App.page(),s.x,s.y,{name:f.name,size:f.size,mime:f.type,data:d,kind});App.render();App.save()})}
+function addin(a){const p=App.page(),sec=App.sec();
+ if(a==='stats'){const tx=p.items.map(i=>QEngine.plain(i.html)).join(' ');say('<b>Page statistics</b><p>Words: '+tx.split(/\s+/).filter(Boolean).length+'<br>Characters: '+tx.length+'<br>Text boxes: '+p.items.filter(i=>i.type==='text').length+'<br>Pictures: '+p.items.filter(i=>i.type==='image').length+'</p>')}
+ if(a==='callout')ins('<div class="callout" style="border-left:4px solid #7719aa;background:rgba(119,25,170,.12);padding:6px 10px">Note</div><br>');
+ if(a==='divider')ins('<hr><br>');
+ if(a==='toc')ins('<ul>'+sec.pages.map(x=>'<li>'+esc(x.title||'Untitled Page')+'</li>').join('')+'</ul>')}
+$('#dlgBody').addEventListener('click',e=>{const d=e.target.dataset||{};if(d.ins){dlg.close();ins(esc(d.ins))}if(d.ad){dlg.close();addin(d.ad)}});
+let arec=null;
+Object.assign(ACT,{
+ table(){ask('Insert table','<p>Rows <input id="tr" type="number" min="1" max="20" value="3" style="width:60px"> Columns <input id="tc" type="number" min="1" max="12" value="3" style="width:60px"></p>','Insert',()=>{const r=Math.max(1,Math.min(20,+$('#tr').value||3)),c=Math.max(1,Math.min(12,+$('#tc').value||3));ins('<table><tbody>'+('<tr>'+'<td>&nbsp;</td>'.repeat(c)+'</tr>').repeat(r)+'</tbody></table><br>')})},
+ imgDev(){pick('image/*',f=>readFile(f,d=>shrink(d,(s,w)=>placeImage(s,w))))},
+ imgWeb(){ask('Picture from web','<p>Image address<br><input id="webUrl" style="width:320px" placeholder="https://..."></p>','Insert',()=>{const u=$('#webUrl').value.trim();if(!/^(https?:|data:image\/)/i.test(u))return say('<b>Picture from web</b><p>Enter an address that starts with http:// or https://</p>');placeImage(u,300)})},
+ link(){const sel=lastRange&&!lastRange.collapsed?String(lastRange):'';ask('Insert link','<p>Address<br><input id="lkUrl" style="width:320px" placeholder="https://..."></p><p>Text to display<br><input id="lkTxt" style="width:320px" value="'+esc(sel)+'"></p>','Insert',()=>{let u=$('#lkUrl').value.trim();if(!u)return;if(!/^[a-z][a-z0-9+.-]*:/i.test(u))u='https://'+u;const t=$('#lkTxt').value.trim()||u,e=target()||App.newText(60,150);if(!e)return;e.focus();if(sel&&t===sel)document.execCommand('createLink',false,u);else document.execCommand('insertHTML',false,'<a href="'+esc(u)+'">'+esc(t)+'</a>&nbsp;');e.dispatchEvent(new Event('input'))})},
+ sym(){say('<b>Symbol</b><p>'+'©®™€£¥°±×÷≠≤≥∞πΩαβγδλμΣ√∫←→↑↓↔✓✗★♥•…§¶½¼¾'.split('').map(c=>'<button data-ins="'+c+'" style="font-size:18px;width:36px;height:36px">'+c+'</button>').join('')+'</p>')},
+ emoji(){say('<b>Emoji</b><p>'+Array.from('😊😀😂😍👍🙏🎉🔥💡✅❌⭐❤📌📎📅📝🧠🚀').map(c=>'<button data-ins="'+c+'" style="font-size:20px;width:40px;height:40px">'+c+'</button>').join('')+'</p>')},
+ dt(x){menu(x,[['Date',()=>ins(new Date().toLocaleDateString())],['Time',()=>ins(new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))],['Date & Time',()=>ins(new Date().toLocaleString())]])},
+ camera(){if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return say('<b>From Camera</b><p>This browser does not support camera access.</p>');
+  navigator.mediaDevices.getUserMedia({video:true}).then(st=>{const stop=()=>st.getTracks().forEach(t=>t.stop());ask('From Camera','<p><video id="camV" autoplay muted playsinline style="width:320px;max-width:100%"></video></p>','Take picture',()=>{const v=$('#camV'),c=document.createElement('canvas');c.width=v.videoWidth||320;c.height=v.videoHeight||240;c.getContext('2d').drawImage(v,0,0);stop();placeImage(c.toDataURL('image/jpeg',.85),Math.min(c.width,420))});$('#camV').srcObject=st;dlg.addEventListener('close',stop,{once:true})}).catch(e=>say('<b>From Camera</b><p>Could not open the camera ('+esc(e.name)+'). Allow camera access and try again.</p>'))},
+ audio(){const b=document.querySelector('[data-c=audio]');if(arec){arec.stop();return}
+  if(!window.MediaRecorder||!navigator.mediaDevices)return say('<b>Audio</b><p>This browser cannot record audio.</p>');
+  navigator.mediaDevices.getUserMedia({audio:true}).then(st=>{const ch=[],r=new MediaRecorder(st);arec=r;r.ondataavailable=e=>{if(e.data.size)ch.push(e.data)};
+   r.onstop=()=>{st.getTracks().forEach(t=>t.stop());arec=null;if(b)b.classList.remove('act');readFile(new Blob(ch,{type:r.mimeType||'audio/webm'}),d=>{const s=spot();QEngine.addAudio(App.page(),s.x,s.y,d,'Recording '+new Date().toLocaleTimeString());App.render();App.save()})};
+   r.start();if(b)b.classList.add('act')}).catch(e=>say('<b>Audio</b><p>Could not use the microphone ('+esc(e.name)+'). Allow microphone access and try again.</p>'))},
+ attach(){pick('*/*',f=>addFileItem(f,'file'))},
+ printout(){pick('.pdf,.txt,.md,.csv,.json,application/pdf,text/*',f=>{if(f.type==='application/pdf'||/\.pdf$/i.test(f.name))addFileItem(f,'pdf');else f.text().then(t=>{const s=spot();QEngine.addText(App.page(),s.x,s.y,'<b>'+esc(f.name)+'</b><br>'+esc(t).split('\n').join('<br>'));App.render();App.save()})})},
+ addins(){say('<b>Office Add-ins</b><p>Built-in add-ins:</p><p><button class="b" data-ad="stats">Page statistics</button> <button class="b" data-ad="callout">Callout box</button> <button class="b" data-ad="divider">Divider line</button> <button class="b" data-ad="toc">Section contents</button></p>')}});
+function dl(name,text,mime){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:mime}));a.download=name.replace(/[\\/:*?"<>|]/g,'_');document.body.appendChild(a);a.click();a.remove()}
+function nbSwitch(nb){App.setNb(nb);App.render();listAll();App.save()}
+function backstage(){if($('#backstage'))return;const d=document.createElement('div');d.id='backstage';
+ const K=[['info','Info'],['new','New'],['open','Open'],['backup','Save backup'],['restore','Restore backup'],['export','Export'],['print','Print'],['options','Options']];
+ d.innerHTML='<div class="side"><button id="bsBack">← Back</button>'+K.map(([k,l])=>'<button data-k="'+k+'">'+l+'</button>').join('')+'</div><div class="pane" id="bsPane"></div>';document.body.appendChild(d);
+ const P=$('#bsPane'),st=App.state;
+ const show=k=>{d.querySelectorAll('.side [data-k]').forEach(b=>b.classList.toggle('act',b.dataset.k===k));const nb=st.nb,pages=nb.sections.reduce((a,s)=>a+s.pages.length,0);
+  if(k==='info'){P.innerHTML='<h2>Info</h2><p>Notebook name<br><input id="bsName" value="'+esc(nb.name)+'"> <button class="b" id="bsRename">Rename</button></p><p>'+nb.sections.length+' sections · '+pages+' pages · '+st.nbs.length+' notebook(s) in this browser</p><p><button class="b" id="bsDelete"'+(st.nbs.length<2?' disabled':'')+'>Delete this notebook</button></p>';
+   $('#bsRename').onclick=()=>{const v=$('#bsName').value.trim();if(!v)return;nb.name=v;listAll();App.save();show('info')};
+   $('#bsDelete').onclick=()=>ask('Delete notebook','<p>Delete “'+esc(nb.name)+'” and everything in it? This cannot be undone. Save a backup first if unsure.</p>','Delete',()=>{st.nbs=st.nbs.filter(n=>n.id!==nb.id);nbSwitch(st.nbs[0]);d.remove()})}
+  else if(k==='new'){P.innerHTML='<h2>New notebook</h2><p><input id="bsNewName" value="New Notebook"> <button class="b" id="bsCreate">Create</button></p>';$('#bsCreate').onclick=()=>{nbSwitch(QEngine.create($('#bsNewName').value.trim()||'New Notebook'));d.remove()}}
+  else if(k==='open'){P.innerHTML='<h2>Open notebook</h2>'+st.nbs.map(n=>'<div class="nbrow" data-id="'+n.id+'"><b>'+esc(n.name)+'</b> · '+n.sections.length+' sections'+(n.id===nb.id?' (open)':'')+'</div>').join('');P.querySelectorAll('.nbrow').forEach(r=>r.onclick=()=>{nbSwitch(st.nbs.find(n=>n.id===r.dataset.id));d.remove()})}
+  else if(k==='backup'){P.innerHTML='<h2>Save backup</h2><p>Downloads this notebook as a JSON file you can restore later.</p><button class="b" id="bsDl">Download backup (.json)</button>';$('#bsDl').onclick=()=>dl(nb.name+'.json',JSON.stringify({format:'quadra-onenote',version:1,notebook:nb}),'application/json')}
+  else if(k==='restore'){P.innerHTML='<h2>Restore backup</h2><p>Choose a backup file. It is added as a new notebook; nothing is overwritten.</p><button class="b" id="bsRestore">Choose backup file…</button>';$('#bsRestore').onclick=()=>pick('.json,application/json',f=>f.text().then(t=>{let imp;try{imp=QEngine.importNotebook(JSON.parse(t))}catch(x){return say('<b>Restore failed</b><p>This is not a valid Quadra OneNote backup file.</p>')}st.nbs.push(imp);nbSwitch(imp);d.remove()}))}
+  else if(k==='export'){P.innerHTML='<h2>Export</h2><p><button class="b" id="bsPdf">Page as PDF</button> <button class="b" id="bsTxtPage">Page as text (.txt)</button></p><p><button class="b" id="bsTxtSec">Section as text (.txt)</button> <button class="b" id="bsTxtNb">Notebook as text (.txt)</button></p><p>PDF uses the browser print dialog: choose “Save as PDF”.</p>';
+   $('#bsPdf').onclick=()=>{d.remove();print()};$('#bsTxtPage').onclick=()=>dl((App.page().title||'page')+'.txt',QEngine.pageToText(App.page()),'text/plain');$('#bsTxtSec').onclick=()=>dl(App.sec().name+'.txt',QEngine.sectionToText(App.sec()),'text/plain');$('#bsTxtNb').onclick=()=>dl(nb.name+'.txt',QEngine.notebookToText(nb),'text/plain')}
+  else if(k==='print'){P.innerHTML='<h2>Print</h2><p>Prints the current page without the menus.</p><button class="b" id="bsPrint">Print page</button>';$('#bsPrint').onclick=()=>{d.remove();print()}}
+  else if(k==='options'){P.innerHTML='<h2>Options</h2><p>Theme <select id="bsTheme"><option value="light">Light</option><option value="dark">Dark</option></select></p><p><label><input type="checkbox" id="bsSpell"> Check spelling while typing</label></p><p>Default zoom <select id="bsZoom">'+[50,75,100,125,150,200].map(z=>'<option>'+z+'</option>').join('')+'</select></p>';
+   $('#bsTheme').value=st.theme;$('#bsSpell').checked=st.spell!==false;$('#bsZoom').value=st.zoom||100;
+   $('#bsTheme').onchange=e=>{st.theme=e.target.value;document.documentElement.dataset.theme=st.theme;App.save()};$('#bsSpell').onchange=()=>ACT.spell();$('#bsZoom').onchange=e=>setZoom(+e.target.value)}};
+ d.onclick=e=>{if(e.target.id==='bsBack')d.remove();else if(e.target.dataset.k)show(e.target.dataset.k)};show('info')}
 init();
