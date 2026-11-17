@@ -6,7 +6,7 @@
 <div id="main"><aside id="rail"><button class="ib on" id="railNb" title="Notebooks"><svg class="ic"><use href="#i-book"/></svg></button><button class="ib" id="railSearch" title="Search"><svg class="ic"><use href="#i-search"/></svg></button></aside>
 <aside id="nav"><div id="nbHead"><svg class="ic"><use href="#i-book"/></svg><b id="nbName2">Notebook</b></div><div id="cols"><div class="col"><button class="add" id="addSec">+ Add section</button><div id="secList"></div></div><div class="col"><button class="add" id="addPage">+ Add page</button><div id="pageList"></div></div></div>
 <div id="searchPanel" hidden><input id="q" placeholder="Search this notebook"><div id="results"></div></div></aside>
-<main id="canvasWrap"><div id="canvas"><div id="stamp"></div><input id="pageTitle" placeholder="Untitled Page"></div></main></div>
-<footer id="status"><span id="count">0 words</span><span class="sp"></span><select id="zoomSel"></select></footer>
+<main id="canvasWrap"><div id="canvas"><svg id="ink"></svg><div id="stamp"></div><input id="pageTitle" placeholder="Untitled Page"></div></main></div>
+<footer id="status"><span id="count">0 words</span><span class="sp"></span><button id="zoomOut" title="Zoom out">−</button><select id="zoomSel" class="zoomSel"></select><button id="zoomIn" title="Zoom in">+</button></footer>
 <dialog id="dlg"><div id="dlgBody"></div><menu><button id="dlgOk">OK</button></menu></dialog><div id="menu" hidden></div>
 <script src="engine.js"></script><script src="script.js"></script><script src="ui.js"></script></body></html>
