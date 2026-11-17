@@ -9,6 +9,7 @@
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
   const PT = 4 / 3;                      // CSS px per pt
+  const BORDER_CSS = { single: 'solid', double: 'double', dashed: 'dashed', dotted: 'dotted' };
   const ZOOMS = [50, 75, 90, 100, 110, 125, 150, 175, 200];
   const KEY_DOC = 'quadra.doc.v1';
   const KEY_PREFS = 'quadra.prefs.v1';
@@ -70,7 +71,12 @@
 
   // ---------- dialogs ----------
   const dlg = $('#dlg');
-  function closeDialog() { if (dlg.open) dlg.close(); }
+  // Closing gives the focus back to the document at once. The browser's 'close' event fires later,
+  // so waiting for it would let the next key press land on the page instead of the text.
+  function closeDialog() {
+    if (dlg.open) dlg.close();
+    try { Ed.focus(); } catch (err) { /* ignore: editor not ready */ }
+  }
   function dialog(title, bodyNode, actions, opts) {
     $('#dlg-title').textContent = title;
     const box = $('#dlg-body');
@@ -227,9 +233,45 @@
     columns: () => ({ items: [1, 2, 3].map((n) => ({ label: ['One', 'Two', 'Three'][n - 1], active: sec().columns === n, run: () => Ed.setSection({ columns: n }) })) }),
     breaks: () => ({ items: [
       { label: 'Page Break', run: insertPageBreak },
-      { label: 'Column Break', run: () => notAvailable('Column Break') },
+      { label: 'Column Break', run: () => { if (!Ed.insertColumnBreak()) cannotInsert(); } },
     ] }),
-    fields: () => ({ items: ['Name', 'Address', 'Company', 'Date'].map((f) => ({ label: f, run: () => Ed.typeText('\u00AB' + f + '\u00BB') })) }),
+    fields: () => {
+      const m = Ed.getDoc().merge;
+      const names = m && m.fields && m.fields.length ? m.fields : ['Name', 'Address', 'Company', 'Date'];
+      const items = names.map((f) => ({ label: f, run: () => Ed.typeText('\u00AB' + f + '\u00BB') }));
+      if (!(m && m.fields && m.fields.length)) items.push('-', { label: 'Start Mail Merge to use your own fields', disabled: true });
+      return { items };
+    },
+    tracking: () => {
+      const on = Ed.isTracking();
+      return { items: [
+        { label: on ? 'Turn off Track Changes' : 'Turn on Track Changes', active: on, run: () => Ed.setTracking(!on) },
+        '-',
+        { label: 'Accept All Changes', run: () => { const n = Ed.acceptAllChanges(); showToast(n ? n + (n === 1 ? ' change accepted' : ' changes accepted') : 'No tracked changes'); } },
+        { label: 'Reject All Changes', run: () => { const n = Ed.rejectAllChanges(); showToast(n ? n + (n === 1 ? ' change rejected' : ' changes rejected') : 'No tracked changes'); } },
+      ] };
+    },
+    linenumbers: () => ({ items: [
+      { label: 'None', active: !sec().lineNumbers, run: () => Ed.setSection({ lineNumbers: false }) },
+      { label: 'Continuous', active: !!sec().lineNumbers, run: () => Ed.setSection({ lineNumbers: true }) },
+    ] }),
+    citations: () => {
+      const srcs = Ed.getDoc().sources || [];
+      const items = [
+        { label: 'Manage sources...', run: () => openSources() },
+        { label: 'Insert bibliography', run: () => {
+          const paras = E.bibliographyParas(Ed.getDoc());
+          if (!paras.length) { dialog('No sources yet', h('p', { text: 'Add a source first with Manage sources.' })); return; }
+          Ed.insertParagraphs(paras);
+        } },
+        '-',
+      ];
+      if (!srcs.length) items.push({ label: 'No sources yet', disabled: true });
+      srcs.forEach((src) => items.push({ label: 'Cite ' + E.citationText(src), run: () => Ed.typeText(E.citationText(src)) }));
+      return { items };
+    },
+    shapes: () => ({ items: [['Rectangle', 'rectangle'], ['Ellipse', 'ellipse'], ['Line', 'line'], ['Arrow', 'arrow'], ['Triangle', 'triangle'], ['Star', 'star']]
+      .map(([label, kind]) => ({ label, run: () => { if (!Ed.insertImage(E.shapeDataUrl(kind, 200, 120), 200, 120)) cannotInsert(); } })) }),
     apps: () => ({ panel: appsPanel }),
     profile: () => ({ panel: profilePanel }),
   };
@@ -362,9 +404,74 @@
   }
 
 
+  // ---------- notes, note editor, sources (used by menus and by refresh, so they live in part 1) ----------
+  function renderNotes() {
+    const area = $('#notes-area');
+    const notes = E.listNotes(Ed.getDoc());
+    area.textContent = '';
+    area.hidden = !notes.length;
+    ['footnote', 'endnote'].forEach((kind) => {
+      const list = notes.filter((n) => n.kind === kind);
+      if (!list.length) return;
+      area.appendChild(h('h4', { text: kind === 'footnote' ? 'Footnotes' : 'Endnotes' }));
+      area.appendChild(h('ol', {}, list.map((n) => h('li', { title: 'Click to edit', onclick: () => openNoteEditor(n.id) },
+        h('sup', { text: n.label }), n.text))));
+    });
+  }
+  function openNoteEditor(id) {
+    const n = (Ed.getDoc().footnotes || []).find((x) => x.id === id);
+    if (!n) return;
+    const ta = h('textarea', { 'aria-label': 'Note text' });
+    ta.value = n.text;
+    const err = h('div', { class: 'hint err', role: 'alert' });
+    dialog(n.kind === 'endnote' ? 'Endnote' : 'Footnote', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Note text', ta), err), [
+      { label: 'Save', primary: true, onClick: () => {
+        if (!Ed.setNoteText(id, ta.value)) { err.textContent = 'Note text cannot be empty.'; return false; }
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+    ta.focus();
+  }
+  function openSources() {
+    const f = {
+      author: h('input', { type: 'text', placeholder: 'Author', 'aria-label': 'Author' }),
+      title: h('input', { type: 'text', placeholder: 'Title', 'aria-label': 'Title' }),
+      year: h('input', { type: 'text', placeholder: 'Year', 'aria-label': 'Year', maxlength: '6' }),
+      publisher: h('input', { type: 'text', placeholder: 'Publisher', 'aria-label': 'Publisher' }),
+    };
+    const err = h('div', { class: 'hint err', role: 'alert' });
+    const list = h('div', { class: 'stack-d' });
+    const build = () => {
+      list.textContent = '';
+      const srcs = Ed.getDoc().sources || [];
+      if (!srcs.length) list.appendChild(h('p', { class: 'muted', text: 'No sources yet.' }));
+      srcs.forEach((src) => list.appendChild(h('div', { class: 'row-b' },
+        h('span', { text: (src.author || src.title) + ' (' + (src.year || 'n.d.') + ')' }),
+        h('button', { class: 'btn', type: 'button', onclick: () => { Ed.removeSource(src.id); build(); } }, 'Delete'))));
+    };
+    build();
+    dialog('Sources', h('div', { class: 'stack-d' },
+      h('div', { class: 'row-b' }, f.author, f.title),
+      h('div', { class: 'row-b' }, f.year, f.publisher),
+      err, list), [
+      { label: 'Add source', primary: true, onClick: () => {
+        const id = Ed.addSource({ author: f.author.value, title: f.title.value, year: f.year.value, publisher: f.publisher.value });
+        if (!id) { err.textContent = 'Enter an author or a title.'; return false; }
+        Object.values(f).forEach((i) => { i.value = ''; });
+        err.textContent = '';
+        build();
+        return false;
+      } },
+      { label: 'Close' },
+    ]);
+  }
+
   // ---------- command registry (ribbon buttons, title bar, status bar) ----------
   const CMD = {};
   function runCmd(el, name) {
+    Ed.sync();                       // use the caret the user actually has, not the last one we stored
     const fn = CMD[name];
     if (fn) fn(el);
     else console.warn('No command registered for', name);
@@ -435,6 +542,7 @@
     const sheet = $('#sheet');
     sheet.style.width = sz.w * PT + 'px';
     sheet.style.minHeight = sz.h * PT + 'px';
+    sheet.style.setProperty('--page-h', sz.h * PT + 'px');
     sheet.style.padding = [m.top, m.right, m.bottom, m.left].map((v) => v * PT + 'px').join(' ');
     sheet.style.background = s.pageColor && s.pageColor !== 'auto' ? s.pageColor : '';
     setVar(sheet, '--doc-font', (d.theme && d.theme.font) || '');
@@ -448,6 +556,11 @@
       el.style.right = m.right * PT + 'px';
     });
     $('#page-rule').textContent = '@page { size: ' + s.size.toLowerCase() + ' ' + s.orientation + '; margin: 0; }';
+    const pb = s.pageBorder;
+    sheet.style.border = pb && pb.style && pb.style !== 'none'
+      ? (pb.width || 1) + 'px ' + (BORDER_CSS[pb.style] || 'solid') + ' ' + (pb.color || '#000000')
+      : '';
+    body.classList.toggle('lines', !!s.lineNumbers);
     const wm = $('#watermark');
     wm.textContent = d.watermark || '';
     wm.hidden = !d.watermark;
@@ -511,6 +624,7 @@
   }
   function refresh() {
     applyLayout();
+    renderNotes();
     updateToolbar();
     updateNav();
     updatePages();
@@ -666,6 +780,7 @@
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
+        if (document.body.classList.contains('reading')) { CMD.reading(); return; }
         if (!menuEl.hidden) closeMenu();
         else if (!$('#backstage').hidden) CMD['bs-close']();
         return;
@@ -1102,4 +1217,504 @@
   U.openFind = openFind;
   U.printDoc = printDoc;
   U.start();
+})(window.QuadraUI);
+
+/* ===== ui.js part 3: Home and Insert features (Format Painter, Dictate, Editor, Video, Bookmarks, Comments, Equation) ===== */
+(function (U) {
+  'use strict';
+  const E = window.QuadraEngine;
+  const Ed = window.QuadraEditor;
+  const { CMD, h, $$, dialog, closeDialog, showToast } = U;
+
+  // Button pressed-state follows the editor state.
+  Ed.on('selection', () => {
+    const on = Ed.state().painter;
+    $$('[data-cmd=format-painter]').forEach((b) => b.setAttribute('aria-pressed', String(on)));
+  });
+  const setDictating = (on) => $$('[data-cmd=dictate]').forEach((b) => b.setAttribute('aria-pressed', String(on)));
+
+  // ----- Format Painter: copy the formatting of the selection, apply it to the next selection -----
+  CMD['format-painter'] = () => {
+    if (Ed.painterArmed()) { Ed.disarmPainter(); return; }
+    if (!Ed.armPainter()) showToast('Put the cursor in a paragraph first');
+  };
+
+  // ----- Dictate: browser speech recognition (Chrome, Edge). Recognised text is typed at the caret. -----
+  let rec = null;
+  CMD.dictate = () => {
+    if (rec) { rec.stop(); return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      dialog('Dictation is not available here', h('p', { text: 'This browser does not support speech recognition. Use a recent Chrome or Edge on a desktop, and allow microphone access.' }));
+      return;
+    }
+    const r = new SR();
+    r.continuous = true;
+    r.interimResults = false;
+    r.lang = navigator.language || 'en-US';
+    r.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) Ed.typeText(res[0].transcript.trim() + ' ');
+      }
+    };
+    r.onerror = (e) => { showToast('Dictation stopped: ' + (e.error || 'error')); };
+    r.onend = () => { rec = null; setDictating(false); };
+    rec = r;
+    try { r.start(); setDictating(true); } catch (err) { rec = null; showToast('Could not start dictation'); }
+  };
+
+  // ----- Editor: rule-based checks (spacing, punctuation, capital letters). Not a spelling checker. -----
+  CMD.editor = () => {
+    const issues = E.editorCheck(Ed.getDoc());
+    const fixable = issues.filter((i) => i.fixable).length;
+    if (!issues.length) {
+      dialog('Editor', h('p', { text: 'No suggestions. Spacing, punctuation and capital letters look right. Editor does not check spelling.' }));
+      return;
+    }
+    const list = h('ul', { class: 'hist' }, issues.slice(0, 60).map((i) => h('li', {},
+      h('span', { text: i.msg + ': "' + i.excerpt.trim() + '"' }))));
+    dialog('Editor', h('div', { class: 'stack-d' },
+      h('p', { text: issues.length + (issues.length === 1 ? ' suggestion' : ' suggestions') + (fixable ? ', ' + fixable + ' can be fixed automatically.' : '.') }),
+      list,
+      h('p', { class: 'muted', text: 'Editor checks spacing, punctuation and capital letters. It does not check spelling.' })),
+      fixable ? [
+        { label: 'Fix all', primary: true, onClick: () => { const n = Ed.fixEditor(); showToast(n + (n === 1 ? ' fix applied' : ' fixes applied')); return true; } },
+        { label: 'Close' },
+      ] : undefined);
+  };
+
+  // ----- Online Video: inserts a labelled link (no embedded player) -----
+  CMD.video = () => {
+    const url = h('input', { type: 'url', placeholder: 'https://www.youtube.com/watch?v=...', 'aria-label': 'Video address' });
+    const err = h('div', { class: 'hint err', role: 'alert' });
+    dialog('Insert Online Video', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Video address', url),
+      h('p', { class: 'muted', text: 'The video is added as a labelled link, not as an embedded player.' }),
+      err), [
+      { label: 'Insert', primary: true, onClick: () => {
+        const v = url.value.trim();
+        if (!/^https?:\/\//i.test(v)) { err.textContent = 'Enter an address that starts with https://'; return false; }
+        Ed.typeText('Video: ');
+        if (!Ed.insertLink(v)) { err.textContent = 'Video links cannot be inserted here.'; return false; }
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+    url.focus();
+  };
+
+  // ----- Bookmarks: a name on the current paragraph; list with Go to and Delete -----
+  CMD.bookmarks = () => {
+    const name = h('input', { type: 'text', placeholder: 'Name (letters, digits, _)', maxlength: '40', 'aria-label': 'Bookmark name' });
+    const err = h('div', { class: 'hint err', role: 'alert' });
+    const list = h('div', { class: 'stack-d' });
+    const build = () => {
+      list.textContent = '';
+      const items = E.listBookmarks(Ed.getDoc());
+      if (!items.length) list.appendChild(h('p', { class: 'muted', text: 'No bookmarks yet.' }));
+      items.forEach((it) => list.appendChild(h('div', { class: 'row-b' },
+        h('span', { text: it.name + ' (paragraph ' + (it.a.b + 1) + ')' }),
+        h('button', { class: 'btn', type: 'button', onclick: () => { Ed.moveTo(it.a); closeDialog(); } }, 'Go to'),
+        h('button', { class: 'btn', type: 'button', onclick: () => { Ed.removeBookmark(it.name); build(); } }, 'Delete'))));
+    };
+    build();
+    dialog('Bookmarks', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Add a bookmark on the current paragraph', name),
+      err, list), [
+      { label: 'Add', primary: true, onClick: () => {
+        if (!Ed.setBookmark(name.value.trim())) { err.textContent = 'Start with a letter; use only letters, digits or _ (up to 40).'; return false; }
+        name.value = ''; err.textContent = ''; build(); return false;
+      } },
+      { label: 'Close' },
+    ]);
+    name.focus();
+  };
+
+  // ----- New Comment: text attached to the current paragraph; list with Delete -----
+  CMD.comment = () => {
+    const text = h('textarea', { placeholder: 'Write a comment about this paragraph', 'aria-label': 'Comment text' });
+    const err = h('div', { class: 'hint err', role: 'alert' });
+    const list = h('div', { class: 'stack-d' });
+    const build = () => {
+      list.textContent = '';
+      const items = E.listComments(Ed.getDoc());
+      if (!items.length) list.appendChild(h('p', { class: 'muted', text: 'No comments yet.' }));
+      items.forEach((c) => list.appendChild(h('div', { class: 'row-b' },
+        h('span', { text: c.text + (c.anchored ? '' : ' (paragraph was merged or removed)') }),
+        h('button', { class: 'btn', type: 'button', onclick: () => { Ed.removeComment(c.id); build(); } }, 'Delete'))));
+    };
+    build();
+    dialog('Comments', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'New comment on the current paragraph', text),
+      err, list), [
+      { label: 'Add comment', primary: true, onClick: () => {
+        if (!text.value.trim()) { err.textContent = 'Write something first.'; return false; }
+        if (!Ed.addComment(text.value)) { err.textContent = 'Put the cursor in a paragraph first.'; return false; }
+        text.value = ''; err.textContent = ''; build(); return false;
+      } },
+      { label: 'Close' },
+    ]);
+    text.focus();
+  };
+
+  // ----- Equation: ^ superscript, _ subscript, and names such as pi, sqrt, alpha -----
+  CMD.equation = () => {
+    const src = h('input', { type: 'text', placeholder: 'e.g. x^2 + pi    or    H_2O', 'aria-label': 'Equation', style: 'font-family: monospace' });
+    const prev = h('div', { class: 'eq-preview', 'aria-live': 'polite', style: 'min-height: 30px; padding: 8px; border: 1px dashed var(--border); border-radius: 6px; font-size: 16px' });
+    const err = h('div', { class: 'hint err', role: 'alert' });
+    const draw = () => {
+      prev.textContent = '';
+      E.equationRuns(src.value).forEach((r) => prev.appendChild(
+        r.f.sup ? h('sup', { text: r.t }) : r.f.sub ? h('sub', { text: r.t }) : document.createTextNode(r.t)));
+    };
+    src.addEventListener('input', draw);
+    dialog('Equation', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Type the equation (^ for superscript, _ for subscript)', src),
+      h('div', { class: 'field' }, 'Preview', prev),
+      err), [
+      { label: 'Insert', primary: true, onClick: () => {
+        const runs = E.equationRuns(src.value);
+        if (!runs.length) { err.textContent = 'Type an equation first.'; return false; }
+        if (!Ed.insertRuns(runs)) { err.textContent = 'Equations cannot be inserted inside a table cell in this version.'; return false; }
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+    src.focus();
+  };
+})(window.QuadraUI);
+
+/* ===== ui.js part 4: Design, Layout and References features ===== */
+(function (U) {
+  'use strict';
+  const E = window.QuadraEngine;
+  const Ed = window.QuadraEditor;
+  const { CMD, h, $, dialog, showToast } = U;
+
+  // ----- Page Borders (Design and Layout tabs): stored in the section, drawn on the sheet and in print -----
+  CMD['page-borders'] = () => {
+    const pb = Ed.getDoc().section.pageBorder || { style: 'none', width: 1, color: '#000000' };
+    const style = h('select', { 'aria-label': 'Border style' },
+      [['none', 'None'], ['single', 'Single'], ['double', 'Double'], ['dashed', 'Dashed'], ['dotted', 'Dotted']]
+        .map(([v, t]) => h('option', { value: v }, t)));
+    style.value = pb.style;
+    const width = h('select', { 'aria-label': 'Border width' },
+      ['1', '2', '3', '4', '6'].map((w) => h('option', { value: w }, w + ' px')));
+    width.value = String(pb.width || 1);
+    const color = h('input', { type: 'color', 'aria-label': 'Border color' });
+    color.value = pb.color || '#000000';
+    dialog('Page Borders', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Style', style),
+      h('label', { class: 'field' }, 'Width', width),
+      h('label', { class: 'field' }, 'Color', color),
+      h('p', { class: 'muted', text: 'The border is drawn around the page and is included when you print.' })), [
+      { label: 'Apply', primary: true, onClick: () => {
+        Ed.setSection({ pageBorder: { style: style.value, width: +width.value, color: color.value } });
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+  };
+
+  // ----- References: Update Table, Footnote and Endnote -----
+  CMD['toc-update'] = () => {
+    if (!Ed.updateToc()) {
+      dialog('No table of contents', h('p', { text: 'There is no table of contents in this document yet. Insert one from the References or Insert tab.' }));
+      return;
+    }
+    showToast('Table of contents updated');
+  };
+
+  function noteDialog(kind) {
+    const isEnd = kind === 'endnote';
+    const ta = h('textarea', { 'aria-label': isEnd ? 'Endnote text' : 'Footnote text', placeholder: isEnd ? 'Text of the endnote' : 'Text of the footnote' });
+    const err = h('div', { class: 'hint err', role: 'alert' });
+    dialog(isEnd ? 'Insert Endnote' : 'Insert Footnote', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Note text', ta),
+      h('p', { class: 'muted', text: 'The number appears in the text at the cursor. The note is listed at the end of the document.' }),
+      err), [
+      { label: 'Insert', primary: true, onClick: () => {
+        if (!ta.value.trim()) { err.textContent = 'Write the note text first.'; return false; }
+        if (!Ed.insertNote(kind, ta.value)) { err.textContent = 'Put the cursor in a normal paragraph (not in a table cell).'; return false; }
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+    ta.focus();
+  }
+  CMD.footnote = () => noteDialog('footnote');
+  CMD.endnote = () => noteDialog('endnote');
+
+  // Clicking a note number in the text opens its text for editing.
+  document.addEventListener('click', (e) => {
+    const ref = e.target.closest && e.target.closest('#doc-body .fnref');
+    if (!ref) return;
+    const id = ref.dataset.fn;
+    const n = (Ed.getDoc().footnotes || []).find((x) => x.id === id);
+    if (!n) return;
+    const ta = h('textarea', { 'aria-label': 'Note text' });
+    ta.value = n.text;
+    const err = h('div', { class: 'hint err', role: 'alert' });
+    dialog(n.kind === 'endnote' ? 'Endnote' : 'Footnote', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Note text', ta), err), [
+      { label: 'Save', primary: true, onClick: () => {
+        if (!Ed.setNoteText(id, ta.value)) { err.textContent = 'Note text cannot be empty.'; return false; }
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+    ta.focus();
+  });
+})(window.QuadraUI);
+
+/* ===== ui.js part 6: Mailings, Review, View and Help features ===== */
+(function (U) {
+  'use strict';
+  const E = window.QuadraEngine;
+  const Ed = window.QuadraEditor;
+  const { CMD, h, $, $$, dialog, closeDialog, showToast } = U;
+
+  function download(name, text, type) {
+    const url = URL.createObjectURL(new Blob([text], { type }));
+    const a = h('a', { href: url, download: name });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  const baseName = () => (Ed.getDoc().title || 'Document').replace(/[\\/:*?"<>|]+/g, '_');
+  const hasMerge = () => { const m = Ed.getDoc().merge; return !!(m && m.records && m.records.length); };
+
+  // Pressed state for Track Changes
+  Ed.on('selection', () => {
+    $$('[data-menu=tracking]').forEach((b) => b.setAttribute('aria-pressed', String(Ed.isTracking())));
+  });
+
+  // ----- Mailings: Envelopes and Labels -----
+  CMD.envelopes = () => {
+    const from = h('textarea', { 'aria-label': 'Sender address', placeholder: 'Your name\nStreet\nCity' });
+    const to = h('textarea', { 'aria-label': 'Recipient address', placeholder: 'Recipient name\nStreet\nCity' });
+    const err = h('div', { class: 'hint err', role: 'alert' });
+    dialog('Envelopes', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Sender address (one line per row)', from),
+      h('label', { class: 'field' }, 'Recipient address (one line per row)', to),
+      err), [
+      { label: 'Insert', primary: true, onClick: () => {
+        const paras = E.envelopeParas(from.value, to.value);
+        if (!paras.some((p) => E.paraText(p).trim())) { err.textContent = 'Type at least one address line.'; return false; }
+        Ed.insertParagraphs(paras);
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+    to.focus();
+  };
+
+  CMD.labels = () => {
+    const rows = h('input', { type: 'number', min: '1', max: '10', value: '3', 'aria-label': 'Rows' });
+    const cols = h('input', { type: 'number', min: '1', max: '4', value: '2', 'aria-label': 'Columns' });
+    const texts = h('textarea', { 'aria-label': 'Label texts', placeholder: 'One label per line, filled left to right, top to bottom' });
+    const err = h('div', { class: 'hint err', role: 'alert' });
+    dialog('Labels', h('div', { class: 'stack-d' },
+      h('div', { class: 'row-b' },
+        h('label', { class: 'field' }, 'Rows (1-10)', rows),
+        h('label', { class: 'field' }, 'Columns (1-4)', cols)),
+      h('label', { class: 'field' }, 'Label texts', texts),
+      err), [
+      { label: 'Insert labels', primary: true, onClick: () => {
+        const r = parseInt(rows.value, 10), c = parseInt(cols.value, 10);
+        if (!(r >= 1 && r <= 10 && c >= 1 && c <= 4)) { err.textContent = 'Rows must be 1-10 and columns 1-4.'; return false; }
+        const lines = texts.value.split(/\r?\n/);
+        if (!Ed.insertBlocks([E.labelsTable(r, c, lines)])) { err.textContent = 'Labels cannot be inserted inside a table cell.'; return false; }
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+    texts.focus();
+  };
+
+  // ----- Mailings: mail merge (data source is pasted CSV; first row is field names) -----
+  CMD['merge-start'] = () => {
+    const m = Ed.getDoc().merge;
+    const csv = h('textarea', { 'aria-label': 'Recipient data (CSV)', placeholder: 'Name,City\nAsha Rao,Patna\nSita Devi,Delhi' });
+    if (m && m.fields) csv.value = [m.fields.join(',')].concat(m.records.map((r) => m.fields.map((f) => r[f] || '').join(','))).join('\n');
+    const err = h('div', { class: 'hint err', role: 'alert' });
+    dialog('Start Mail Merge', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Recipients (CSV: first row is the field names)', csv),
+      h('p', { class: 'muted', text: 'Insert Field then uses these names. Preview Results shows each letter; Finish & Merge saves them as one file.' }),
+      err), [
+      { label: 'Use this data', primary: true, onClick: () => {
+        let parsed;
+        try { parsed = E.parseCsv(csv.value); } catch (e) { err.textContent = e.message; return false; }
+        Ed.setDocField('merge', parsed);
+        showToast('Mail merge: ' + parsed.records.length + (parsed.records.length === 1 ? ' record' : ' records'));
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+    csv.focus();
+  };
+
+  CMD['merge-preview'] = () => {
+    if (!hasMerge()) {
+      dialog('No recipients yet', h('p', { text: 'Use Start Mail Merge first to add the recipient data.' }));
+      return;
+    }
+    const doc = Ed.getDoc();
+    let i = 0;
+    const frame = h('iframe', { sandbox: '', title: 'Merged letter preview', style: 'width: 100%; height: 300px; border: 1px solid var(--border); border-radius: 6px; background: #fff' });
+    const label = h('span', { class: 'muted' });
+    const show = () => {
+      frame.srcdoc = E.toHTML(E.mergeRecord(doc, doc.merge.records[i]));
+      label.textContent = 'Record ' + (i + 1) + ' of ' + doc.merge.records.length;
+    };
+    const prev = h('button', { class: 'btn', type: 'button', onclick: () => { i = Math.max(0, i - 1); show(); } }, 'Previous');
+    const next = h('button', { class: 'btn', type: 'button', onclick: () => { i = Math.min(doc.merge.records.length - 1, i + 1); show(); } }, 'Next');
+    dialog('Preview Results', h('div', { class: 'stack-d' }, h('div', { class: 'row-b' }, prev, next, label), frame), [{ label: 'Close', primary: true }]);
+    show();
+  };
+
+  CMD['merge-finish'] = () => {
+    if (!hasMerge()) {
+      dialog('No recipients yet', h('p', { text: 'Use Start Mail Merge first to add the recipient data.' }));
+      return;
+    }
+    const doc = Ed.getDoc();
+    const merged = E.mergeAllCombined(doc);
+    download(baseName() + '-merged.html', E.toHTML(merged), 'text/html');
+    showToast('Merged ' + doc.merge.records.length + ' letters into one file');
+  };
+
+  // ----- Review: Check Accessibility, Translate, Show Comments -----
+  CMD.accessibility = () => {
+    const issues = E.accessibilityCheck(Ed.getDoc());
+    if (!issues.length) {
+      dialog('Accessibility check', h('p', { text: 'No issues found. The document has a name, headings, and alternative text for its pictures.' }));
+      return;
+    }
+    const list = h('div', { class: 'stack-d' }, issues.map((i) => h('div', { class: 'row-b' },
+      h('span', { text: i.msg }),
+      i.b !== undefined ? h('button', { class: 'btn', type: 'button', onclick: () => { Ed.moveTo(i.b); closeDialog(); } }, 'Go to') : null)));
+    dialog('Accessibility check', h('div', { class: 'stack-d' },
+      h('p', { text: issues.length + (issues.length === 1 ? ' issue' : ' issues') + ' found.' }), list));
+  };
+
+  CMD.translate = () => {
+    const sel = Ed.selectedText();
+    const text = (sel || Ed.getDoc().blocks.filter((b) => b.type === 'p').map((b) => E.paraText(b)).join('\n')).slice(0, 1500);
+    if (!text.trim()) { dialog('Nothing to translate', h('p', { text: 'Select some text, or type something first.' })); return; }
+    const lang = h('select', { 'aria-label': 'Translate into' },
+      [['hi', 'Hindi'], ['en', 'English'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'], ['ar', 'Arabic'], ['zh-CN', 'Chinese (Simplified)'], ['ja', 'Japanese']]
+        .map(([v, t]) => h('option', { value: v }, t)));
+    dialog('Translate', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Translate into', lang),
+      h('p', { class: 'muted', text: (sel ? 'The selected text' : 'The document text (first 1500 characters)') + ' will be sent to Google Translate in a new tab. Quadra does not translate on its own.' })), [
+      { label: 'Open translation', primary: true, onClick: () => {
+        window.open('https://translate.google.com/?sl=auto&tl=' + encodeURIComponent(lang.value) + '&text=' + encodeURIComponent(text) + '&op=translate', '_blank', 'noopener');
+        return true;
+      } },
+      { label: 'Cancel' },
+    ]);
+  };
+
+  CMD['show-comments'] = () => {
+    const items = E.listComments(Ed.getDoc());
+    const list = h('div', { class: 'stack-d' });
+    const build = () => {
+      list.textContent = '';
+      const cur = E.listComments(Ed.getDoc());
+      if (!cur.length) list.appendChild(h('p', { class: 'muted', text: 'No comments in this document. Add one with New Comment.' }));
+      cur.forEach((c) => list.appendChild(h('div', { class: 'row-b' },
+        h('span', { text: c.text + (c.anchored ? '' : ' (paragraph was merged or removed)') }),
+        h('button', { class: 'btn', type: 'button', onclick: () => { Ed.removeComment(c.id); build(); } }, 'Delete'))));
+    };
+    build();
+    dialog('Comments (' + items.length + ')', list);
+  };
+
+  // ----- View: Reading View (no editing, ribbon hidden, Escape or the button leaves it) -----
+  CMD.reading = () => {
+    const on = !document.body.classList.contains('reading');
+    document.body.classList.toggle('reading', on);
+    const body = $('#doc-body');
+    body.contentEditable = on ? 'false' : 'true';
+    $('#reading-exit').hidden = !on;
+    $$('[data-cmd=reading]').forEach((b) => b.setAttribute('aria-pressed', String(on)));
+    if (!on) Ed.focus();
+  };
+  $('#reading-exit').addEventListener('click', () => CMD.reading());
+
+  // ----- Help: Contact Support and Feedback (stored in this browser; nothing is sent) -----
+  const KEY_FEEDBACK = 'quadra.feedback.v1';
+  const readFeedback = () => { try { return JSON.parse(localStorage.getItem(KEY_FEEDBACK) || '[]'); } catch (err) { return []; } };
+  function diagnostics() {
+    const d = Ed.getDoc();
+    const wc = E.wordCount(d);
+    return [
+      'Quadra Word v1',
+      'Browser: ' + navigator.userAgent,
+      'Language: ' + (navigator.language || 'unknown'),
+      'Screen: ' + innerWidth + 'x' + innerHeight,
+      'Document: ' + d.title + ' (' + wc.words + ' words, ' + wc.paragraphs + ' paragraphs)',
+      'Paper: ' + d.section.size + ' ' + d.section.orientation,
+      'Saved in this browser: ' + (localStorage.getItem('quadra.doc.v1') ? 'yes' : 'no'),
+    ].join('\n');
+  }
+  CMD.support = () => {
+    const text = diagnostics();
+    const copy = h('button', { class: 'btn', type: 'button', onclick: async () => {
+      try { await navigator.clipboard.writeText(text); showToast('Details copied'); } catch (err) { showToast('Copy failed: select the text and copy it'); }
+    } }, 'Copy details');
+    dialog('Contact Support', h('div', { class: 'stack-d' },
+      h('p', { text: 'Quadra has no support service yet. If something is not working, copy these details and send them with a description of the problem.' }),
+      h('pre', { style: 'white-space: pre-wrap; font-size: 12px; background: var(--chrome); padding: 8px; border-radius: 6px; margin: 0', text }),
+      h('div', { class: 'row-b' }, copy)));
+  };
+
+  CMD.feedback = () => {
+    const type = h('select', { 'aria-label': 'Feedback type' }, ['Bug', 'Idea', 'Other'].map((t) => h('option', { value: t }, t)));
+    const text = h('textarea', { 'aria-label': 'Feedback', placeholder: 'What happened, or what should be better?' });
+    const err = h('div', { class: 'hint err', role: 'alert' });
+    dialog('Feedback', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Type', type),
+      h('label', { class: 'field' }, 'Message', text),
+      h('p', { class: 'muted', text: 'Feedback is kept in this browser only. Use Copy to send it to us.' }),
+      err,
+      h('p', { class: 'muted', text: 'Saved on this device: ' + readFeedback().length }) ), [
+      { label: 'Save', primary: true, onClick: () => {
+        if (!text.value.trim()) { err.textContent = 'Write a message first.'; return false; }
+        const list = readFeedback();
+        list.push({ type: type.value, text: text.value.trim(), date: new Date().toISOString() });
+        try { localStorage.setItem(KEY_FEEDBACK, JSON.stringify(list.slice(-50))); } catch (e) { err.textContent = 'Could not save in this browser.'; return false; }
+        showToast('Feedback saved in this browser');
+        return true;
+      } },
+      { label: 'Copy', onClick: async () => {
+        const msg = '[' + type.value + '] ' + text.value.trim() + '\n\n' + diagnostics();
+        try { await navigator.clipboard.writeText(msg); showToast('Feedback copied'); } catch (e) { err.textContent = 'Copy failed: select the text and copy it.'; }
+        return false;
+      } },
+      { label: 'Close' },
+    ]);
+    text.focus();
+  };
+
+  // ----- Click a picture to set its alternative text (used by Check Accessibility) -----
+  document.addEventListener('click', (e) => {
+    const wrap = e.target.closest && e.target.closest('#doc-body .blk-img');
+    if (!wrap) return;
+    const b = +wrap.dataset.key;
+    const blk = Ed.getDoc().blocks[b];
+    if (!blk || blk.type !== 'img') return;
+    const alt = h('input', { type: 'text', 'aria-label': 'Alternative text', maxlength: '200', placeholder: 'Describe the picture for screen readers' });
+    alt.value = blk.alt || '';
+    dialog('Alternative text', h('div', { class: 'stack-d' },
+      h('label', { class: 'field' }, 'Describe this picture', alt),
+      h('p', { class: 'muted', text: 'Screen readers read this text instead of the picture.' })), [
+      { label: 'Save', primary: true, onClick: () => { Ed.setAlt(b, alt.value); return true; } },
+      { label: 'Cancel' },
+    ]);
+    alt.focus();
+  });
 })(window.QuadraUI);
