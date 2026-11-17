@@ -76,6 +76,9 @@
   // ---------- Small helpers ----------
   let core = null;
   let currentTab = "Home";
+  const wrap = document.getElementById("gridWrap");
+  // Grid geometry; must match the constants at the top of script.js
+  const HDR_W = 40, HDR_H = 20, COL_W = 64, ROW_H = 20;
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const ic = (name, cls) => `<svg class="${cls || "ic"}"><use href="#i-${name}"/></svg>`;
@@ -151,7 +154,7 @@
           rw(sm("ha", "", "alignLeft", { val: "left", title: "Align left" }), sm("ha", "", "alignCenter", { val: "center", title: "Center" }),
             sm("ha", "", "alignRight", { val: "right", title: "Align right" }))),
         stk(rw(sm("indentIn", "", "indentIn", { title: "Decrease indent" }), sm("indentOut", "", "indentOut", { title: "Increase indent" }),
-          sm("orientation", "", "orient", { title: "Orientation" }))),
+          sm("", "", "orient", { menu: "orient", title: "Orientation" }))),
         stk(sm("wrap", "Wrap Text", "wrap", { tgl: "wrap" }), sm("merge", "Merge & Center", "merge"))),
       grp("Number",
         stk(sel("nf", "numFmt", NUMBER_FORMATS, 118, { title: "Number format" }),
@@ -160,7 +163,7 @@
             sm("decDown", "", "decDec", { title: "Decrease decimal" })))),
       grp("Styles",
         stk(sm("", "Conditional Formatting", "condFormat", { menu: "condFormat" }), sm("table", "Format as Table", "table"),
-          sm("cellStyles", "Cell Styles", "cellStyles"))),
+          sm("", "Cell Styles", "cellStyles", { menu: "cellStyles" }))),
       grp("Cells", bg("", "Insert", "insertCells", { menu: "insertCells" }), bg("", "Delete", "deleteCells", { menu: "deleteCells" }),
         bg("formatCells", "Format", "formatCells")),
       grp("Editing",
@@ -180,11 +183,11 @@
       grp("Charts",
         bg("chart", "Column", "chartColumn", { val: "column" }),
         bg("chart", "Line", "chartLine", { val: "line" }),
-        bg("chartScatter", "Scatter", "chartScatter"),
+        bg("chart", "Scatter", "chartScatter", { val: "scatter" }),
         bg("chart", "Pie", "chartPie", { val: "pie" }),
         bg("chart", "Bar", "chartBar", { val: "bar" }),
-        bg("chartStat", "Statistical", "chartStat"),
-        bg("chartCombo", "Combo", "chartCombo"),
+        bg("chart", "Statistical", "chartStat", { val: "histogram" }),
+        bg("chart", "Combo", "chartCombo", { val: "combo" }),
         bg("", "Other Charts", "chartOther", { menu: "chartOther" })),
       grp("Filters", bg("slicer", "Slicer", "slicer", { disabled: 1 })),
       grp("Links", bg("hyperlink", "Link", "link")),
@@ -197,12 +200,13 @@
     ],
 
     "Page Layout": [
-      grp("Themes", bg("", "Themes", "theme", { menu: "themes" }),
-        stk(sm("colors", "Colors", "theme"), sm("fonts", "Fonts", "fontColor"), sm("effects", "Effects", "fx"))),
+      grp("Themes", bg("", "Themes", "theme", { menu: "pageTheme" }),
+        stk(sm("", "Colors", "theme", { menu: "colors" }), sm("", "Fonts", "fontColor", { menu: "fonts" }))),
       grp("Page Setup",
-        bg("margins", "Margins", "formatCells"), bg("orientation", "Orientation", "orient"), bg("paperSize", "Size", "file"),
-        bg("printArea", "Print Area", "formatCells"), bg("breaks", "Breaks", "headings"),
-        bg("background", "Background", "pictures"), bg("printTitles", "Print Titles", "headings")),
+        bg("", "Margins", "formatCells", { menu: "margins" }), bg("", "Orientation", "orient", { menu: "orientation" }),
+        bg("", "Size", "file", { menu: "paperSize" }), bg("", "Print Area", "formatCells", { menu: "printArea" }),
+        bg("", "Breaks", "headings", { menu: "breaks" }), bg("", "Background", "pictures", { menu: "background" }),
+        bg("printTitles", "Print Titles", "headings")),
       grp("Scale to Fit",
         stk(sel("scaleW", null, [["auto", "Width: Automatic"], ["1", "Width: 1 page"]], 150),
           sel("scaleH", null, [["auto", "Height: Automatic"], ["1", "Height: 1 page"]], 150),
@@ -210,7 +214,8 @@
       grp("Sheet Options",
         stk(rw(sm("sheetOpt", "Gridlines", "gridlines", { val: "gridView" }), sm("sheetOpt", "Print", "print", { val: "gridPrint" })),
           rw(sm("sheetOpt", "Headings", "headings", { val: "headingsView" }), sm("sheetOpt", "Print", "print", { val: "headingsPrint" })))),
-      grp("Arrange", bg("", "Align", "alignMid", { menu: "align" }), bg("arrange", "Group", "outline"), bg("rotate", "Rotate", "orient"))
+      grp("Arrange", bg("", "Align", "alignMid", { menu: "align" }), bg("rotateObject", "Rotate", "orient"),
+        bg("sendBack", "Send to Back", "formatCells"))
     ],
 
     Formulas: [
@@ -375,11 +380,11 @@
     sort: [{ label: "Sort A to Z", cmd: "sortAsc" }, { label: "Sort Z to A", cmd: "sortDesc" },
       { sep: true }, { label: "Remove Duplicates", cmd: "removeDuplicates" }, { label: "Filter", cmd: "filter" }],
     find: [{ label: "Find…", cmd: "find", hint: "Ctrl+F" }, { label: "Replace…", cmd: "replace" }, { label: "Go To…", cmd: "goto" }],
-    pivot: [{ label: "PivotTable", cmd: "pivot" }, { label: "Recommended PivotTables", cmd: "recPivot" }],
-    forms: [{ label: "Form Control", cmd: "formControl" }],
-    pictures: [{ label: "This Device…", cmd: "pictures" }, { label: "Online Pictures", cmd: "onlinePics" }],
-    shapes: [{ label: "Rectangle", cmd: "shapes" }, { label: "Oval", cmd: "shapes" }, { label: "Arrow", cmd: "shapes" }],
-    chartOther: [{ label: "Histogram", cmd: "chartOther" }, { label: "Box & Whisker", cmd: "chartOther" }, { label: "Treemap", cmd: "chartOther" }],
+    pivot: [{ label: "PivotTable…", cmd: "pivot" }, { label: "Recommended PivotTables…", cmd: "pivot", val: "recommended" }],
+    forms: [{ label: "Form Control (checkbox)", cmd: "checkbox" }],
+    pictures: [{ label: "This Device…", cmd: "picturesFile" }, { label: "Online Pictures", cmd: "onlinePics" }],
+    shapes: [{ label: "Rectangle", cmd: "shape", val: "rect" }, { label: "Oval", cmd: "shape", val: "oval" }, { label: "Arrow", cmd: "shape", val: "arrow" }],
+    chartOther: [{ label: "Histogram", cmd: "chart", val: "histogram" }],
     align: [{ label: "Align Left", cmd: "ha", val: "left" }, { label: "Align Center", cmd: "ha", val: "center" }, { label: "Align Right", cmd: "ha", val: "right" }],
     insertCells: [{ label: "Insert Sheet Rows", cmd: "insertRows" }, { label: "Insert Sheet Columns", cmd: "insertCols" }],
     deleteCells: [{ label: "Delete Sheet Rows", cmd: "deleteRows" }, { label: "Delete Sheet Columns", cmd: "deleteCols" }],
@@ -389,6 +394,42 @@
       { label: "Text Contains…", cmd: "cfRule", val: "contains" }, { sep: true },
       { label: "Clear Rules from Selection", cmd: "cfClear" }
     ],
+    cellStyles: [
+      { label: "Normal", cmd: "style", val: "normal" }, { label: "Heading", cmd: "style", val: "heading" },
+      { label: "Title", cmd: "style", val: "title" }, { sep: true },
+      { label: "Good", cmd: "style", val: "good" }, { label: "Bad", cmd: "style", val: "bad" },
+      { label: "Neutral", cmd: "style", val: "neutral" }, { label: "Input", cmd: "style", val: "input" }
+    ],
+    orient: [
+      { label: "Angle Counterclockwise", cmd: "angle", val: 45 }, { label: "Angle Clockwise", cmd: "angle", val: -45 },
+      { label: "Rotate Text Up", cmd: "angle", val: 90 }, { label: "Rotate Text Down", cmd: "angle", val: -90 },
+      { label: "Horizontal Text", cmd: "angle", val: 0 }, { sep: true },
+      { label: "Format Cell Alignment…", cmd: "formatCells" }
+    ],
+    pageTheme: [
+      { label: "Office", cmd: "pageTheme", val: "office" }, { label: "Ocean", cmd: "pageTheme", val: "ocean" },
+      { label: "Warm", cmd: "pageTheme", val: "warm" }, { label: "Mono", cmd: "pageTheme", val: "mono" }
+    ],
+    colors: [
+      { label: "Green", cmd: "accent", val: "#107c41" }, { label: "Blue", cmd: "accent", val: "#0f6cbd" },
+      { label: "Orange", cmd: "accent", val: "#c43e1c" }, { label: "Grey", cmd: "accent", val: "#605e5c" }
+    ],
+    fonts: [
+      { label: "Calibri", cmd: "defaultFont", val: "Calibri" }, { label: "Georgia", cmd: "defaultFont", val: "Georgia" },
+      { label: "Arial", cmd: "defaultFont", val: "Arial" }, { label: "Courier New", cmd: "defaultFont", val: "Courier New" }
+    ],
+    margins: [
+      { label: "Normal", cmd: "margins", val: "normal" }, { label: "Wide", cmd: "margins", val: "wide" },
+      { label: "Narrow", cmd: "margins", val: "narrow" }
+    ],
+    orientation: [{ label: "Portrait", cmd: "orientation", val: "portrait" }, { label: "Landscape", cmd: "orientation", val: "landscape" }],
+    paperSize: [{ label: "A4", cmd: "paperSize", val: "A4" }, { label: "Letter", cmd: "paperSize", val: "Letter" }, { label: "Legal", cmd: "paperSize", val: "Legal" }],
+    printArea: [{ label: "Set Print Area", cmd: "printArea", val: "set" }, { label: "Clear Print Area", cmd: "printArea", val: "clear" }],
+    breaks: [
+      { label: "Insert Page Break", cmd: "breaks", val: "insert" }, { label: "Remove Page Break", cmd: "breaks", val: "remove" },
+      { label: "Reset All Page Breaks", cmd: "breaks", val: "reset" }
+    ],
+    background: [{ label: "Choose a picture…", cmd: "background", val: "insert" }, { label: "Remove Background", cmd: "background", val: "remove" }],
     themes: [{ label: "Office", cmd: "themeOffice" }],
     calcOptions: [{ label: "Automatic", cmd: "calcBook" }, { label: "Manual", cmd: "calcManual" }],
     getData: [{ label: "From Text/CSV", cmd: "fromText" }, { label: "From Web", cmd: "fromWeb" }, { label: "From Access", cmd: "fromAccess" }],
@@ -600,7 +641,65 @@
     return { labels, series };
   }
 
+  const fmtN = (n) => Number(n.toPrecision(4)).toString();
+
+  function axesSvg(W, H, pad) {
+    return `<line x1="${pad}" y1="${H - pad}" x2="${W - pad}" y2="${H - pad}" stroke="currentColor"/>` +
+      `<line x1="${pad}" y1="${pad}" x2="${pad}" y2="${H - pad}" stroke="currentColor"/>`;
+  }
+
+  function histogramSvg(data) {
+    const vals = data.series.length ? data.series[0].values : [];
+    if (!vals.length) return `<p class="note">Select a column of numbers.</p>`;
+    const bins = 5, lo = Math.min(...vals), hi = Math.max(...vals), w = (hi - lo) / bins || 1;
+    const counts = new Array(bins).fill(0);
+    for (const v of vals) counts[Math.min(bins - 1, Math.floor((v - lo) / w))]++;
+    const labels = counts.map((_, i) => `${fmtN(lo + i * w)}–${fmtN(lo + (i + 1) * w)}`);
+    return chartSvg("column", { labels, series: [{ name: "Count", values: counts }] });
+  }
+
+  function scatterSvg(data) {
+    const W = 640, H = 340, pad = 46;
+    if (!data.series.length) return `<p class="note">Select at least one column of numbers.</p>`;
+    const ys = data.series.length > 1 ? data.series[1].values : data.series[0].values;
+    const xs = data.series.length > 1 ? data.series[0].values : ys.map((_, i) => i + 1);
+    const xmin = Math.min(...xs), xmax = Math.max(...xs), ymin = Math.min(0, ...ys), ymax = Math.max(...ys);
+    const X = (v) => pad + ((v - xmin) / (xmax - xmin || 1)) * (W - 2 * pad);
+    const Y = (v) => H - pad - ((v - ymin) / (ymax - ymin || 1)) * (H - 2 * pad);
+    let body = axesSvg(W, H, pad);
+    xs.forEach((x, i) => { body += `<circle cx="${X(x)}" cy="${Y(ys[i])}" r="4" fill="${PALETTE[0]}"/>`; });
+    return `<svg viewBox="0 0 ${W} ${H}" class="chart">${body}</svg>`;
+  }
+
+  // Columns for the first series, lines for the others, on one shared scale
+  function comboSvg(data) {
+    const W = 640, H = 340, pad = 46, n = data.labels.length;
+    const all = data.series.flatMap((s) => s.values);
+    const max = Math.max(0, ...all) || 1, min = Math.min(0, ...all), span = max - min || 1;
+    const yOf = (v) => H - pad - ((v - min) / span) * (H - 2 * pad);
+    const groupW = (W - 2 * pad) / Math.max(n, 1), zero = yOf(0);
+    let body = axesSvg(W, H, pad);
+    data.series[0].values.forEach((v, i) => {
+      const x = pad + groupW * i + groupW * 0.2;
+      body += `<rect x="${x}" y="${Math.min(yOf(v), zero)}" width="${groupW * 0.6}" height="${Math.abs(zero - yOf(v))}" fill="${PALETTE[0]}"/>`;
+    });
+    data.series.slice(1).forEach((s, si) => {
+      const pts = s.values.map((v, i) => `${pad + groupW * (i + 0.5)},${yOf(v)}`).join(" ");
+      body += `<polyline fill="none" stroke="${PALETTE[(si + 1) % 6]}" stroke-width="2.5" points="${pts}"/>`;
+    });
+    data.labels.forEach((l, i) => {
+      body += `<text x="${pad + groupW * (i + 0.5)}" y="${H - pad + 16}" font-size="11" text-anchor="middle">${esc(l.slice(0, 8))}</text>`;
+    });
+    const legend = data.series.map((s, si) =>
+      `<rect x="${pad + si * 110}" y="8" width="11" height="11" fill="${PALETTE[si % 6]}"/>` +
+      `<text x="${pad + si * 110 + 16}" y="18" font-size="12">${si ? "Line" : "Column"} ${esc(s.name)}</text>`).join("");
+    return `<svg viewBox="0 0 ${W} ${H}" class="chart">${body}${legend}</svg>`;
+  }
+
   function chartSvg(type, data) {
+    if (type === "histogram") return histogramSvg(data);
+    if (type === "scatter") return scatterSvg(data);
+    if (type === "combo") return comboSvg(data);
     const W = 640, H = 340, pad = 46;
     const n = data.labels.length;
     if (type === "pie") {
@@ -684,6 +783,154 @@
       [{ label: "Download SVG", onClick: () => { download(safeFileName(docName(), ".svg"), svg, "image/svg+xml"); return false; } },
         { label: "Close", primary: true }]);
     return d;
+  }
+
+  // ---------- Insert: PivotTable, checkbox, text box, shapes, pictures ----------
+  function showPivot() {
+    const R = core.range();
+    if (R.r2 === R.r1) return core.toast("Select a table with a header row first");
+    const cols = [];
+    for (let c = R.c1; c <= R.c2; c++) cols.push(c);
+    const headerOf = (c) => core.displayText(core.cellValue(R.r1, c), {}) || engine().indexToCol(c);
+    const numCols = cols.filter((c) => {
+      for (let r = R.r1 + 1; r <= R.r2; r++) if (typeof core.cellValue(r, c) === "number") return true;
+      return false;
+    });
+    if (!numCols.length) return core.toast("The selection needs a column of numbers to add up");
+    dialog("PivotTable",
+      `<label class="fmt-line">Group rows by
+         <select id="pvGroup">${cols.map((c) => `<option value="${c}">${esc(headerOf(c))}</option>`).join("")}</select></label>
+       <p><b>Add up</b></p>
+       ${numCols.map((c) => `<label class="radio"><input type="checkbox" data-col="${c}" checked /> ${esc(headerOf(c))}</label>`).join("")}
+       <p class="note">The summary is written two columns to the right of the selection. The totals row is a formula.</p>`,
+      [{ label: "Cancel" },
+        { label: "OK", primary: true, onClick: (el) => {
+          const g = Number(el.querySelector("#pvGroup").value);
+          const vals = [...el.querySelectorAll("input[data-col]:checked")].map((i) => Number(i.dataset.col));
+          if (!vals.length) { core.toast("Pick at least one column to add up"); return false; }
+          buildPivot(R, g, vals, headerOf);
+        } }]);
+  }
+
+  function buildPivot(R, g, vals, headerOf) {
+    if (core.isProtected()) return core.toast("Sheet is protected. Unprotect it to edit.");
+    const groups = new Map();
+    for (let r = R.r1 + 1; r <= R.r2; r++) {
+      const k = core.displayText(core.cellValue(r, g), {}) || "(blank)";
+      if (!groups.has(k)) groups.set(k, vals.map(() => 0));
+      const acc = groups.get(k);
+      vals.forEach((c, i) => { const v = core.cellValue(r, c); if (typeof v === "number") acc[i] += v; });
+    }
+    const top = R.r1, left = R.c2 + 2;
+    const put = (r, c, v, bold) => {
+      core.setValue(r, c, v);
+      if (bold) core.getOrCreate(r, c).s.bold = true;
+    };
+    put(top, left, headerOf(g), true);
+    vals.forEach((c, i) => put(top, left + 1 + i, "Sum of " + headerOf(c), true));
+    let r = top + 1;
+    for (const [k, acc] of groups) {
+      put(r, left, k);
+      acc.forEach((x, i) => put(r, left + 1 + i, String(Number(x.toPrecision(12)))));
+      r++;
+    }
+    put(r, left, "Total", true);
+    vals.forEach((c, i) => {
+      const col = engine().indexToCol(left + 1 + i);
+      put(r, left + 1 + i, `=SUM(${col}${top + 2}:${col}${r})`, true);
+    });
+    core.refresh();
+    core.toast(`PivotTable created at ${engine().indexToCol(left)}${top + 1}`);
+  }
+
+  function insertCheckbox() {
+    if (core.isProtected()) return core.toast("Sheet is protected. Unprotect it to edit.");
+    const c = core.getOrCreate(core.sel.ar, core.sel.ac);
+    if (c.v === "") c.v = "FALSE";
+    c.s.checkbox = true;
+    core.refresh();
+    core.toast("Checkbox inserted. Click its box to tick it.");
+  }
+
+  // Floating objects (text boxes, shapes, pictures). They live on the drawing layer, scroll with the sheet,
+  // and are kept for this session only (they are not part of the saved workbook yet).
+  const objects = [];
+  function placeObject(o) {
+    const sel = core.sel;
+    objects.push({ ...o, x: HDR_W + sel.ac * COL_W + 24, y: HDR_H + sel.ar * ROW_H + 24 });
+    redrawInk();
+  }
+
+  function drawObjects(ctx, sx, sy, W, H) {
+    const pal = core.pal;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(HDR_W, HDR_H, W - HDR_W, H - HDR_H); ctx.clip();
+    for (const o of objects) {
+      const x = o.x - sx, y = o.y - sy;
+      if (x > W || y > H || x + o.w < HDR_W || y + o.h < HDR_H) continue;
+      ctx.save();
+      if (o.rot) {
+        ctx.translate(x + o.w / 2, y + o.h / 2);
+        ctx.rotate(o.rot * Math.PI / 180);
+        ctx.translate(-(x + o.w / 2), -(y + o.h / 2));
+      }
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = pal.accent;
+      if (o.kind === "rect") {
+        ctx.strokeRect(x, y, o.w, o.h);
+      } else if (o.kind === "oval") {
+        ctx.beginPath(); ctx.ellipse(x + o.w / 2, y + o.h / 2, o.w / 2, o.h / 2, 0, 0, Math.PI * 2); ctx.stroke();
+      } else if (o.kind === "arrow") {
+        const x2 = x + o.w, y2 = y + o.h / 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y2); ctx.lineTo(x2, y2);
+        ctx.moveTo(x2, y2); ctx.lineTo(x2 - 12, y2 - 7);
+        ctx.moveTo(x2, y2); ctx.lineTo(x2 - 12, y2 + 7);
+        ctx.stroke();
+      } else if (o.kind === "text") {
+        ctx.fillStyle = pal.cell; ctx.fillRect(x, y, o.w, o.h); ctx.strokeRect(x, y, o.w, o.h);
+        ctx.fillStyle = pal.text; ctx.font = "14px Calibri, Arial, sans-serif"; ctx.textBaseline = "top";
+        ctx.fillText(o.text, x + 6, y + 6, o.w - 12);
+      } else if (o.kind === "picture") {
+        if (o.img.complete && o.img.naturalWidth) ctx.drawImage(o.img, x, y, o.w, o.h);
+        else ctx.strokeRect(x, y, o.w, o.h);
+      }
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function insertTextBox() {
+    const text = prompt("Text for the text box:", "Text");
+    if (text === null) return;
+    placeObject({ kind: "text", text: text.slice(0, 200), w: 220, h: 64 });
+  }
+
+  function insertShape(kind) {
+    const size = kind === "arrow" ? { w: 160, h: 24 } : { w: 150, h: 96 };
+    placeObject({ kind, ...size });
+  }
+
+  function insertPicture() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const file = input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const scale = Math.min(1, 320 / img.naturalWidth, 240 / img.naturalHeight);
+          placeObject({ kind: "picture", img, w: img.naturalWidth * scale, h: img.naturalHeight * scale });
+          core.toast("Picture inserted");
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
   }
 
   // ---------- Workbook files ----------
@@ -809,7 +1056,7 @@
       main.querySelector("#bsCsv").onclick = exportCsv;
     } else if (key === "print") {
       main.innerHTML = `<h2>Print</h2><div class="bs-card"><button class="btn primary" id="bsPrint">Print</button></div>`;
-      main.querySelector("#bsPrint").onclick = () => window.print();
+      main.querySelector("#bsPrint").onclick = () => showPrintPreview();
     } else if (key === "share") {
       main.innerHTML = `<h2>Share</h2><div class="bs-card"><button class="btn primary" id="bsShare">Get a link</button></div>`;
       main.querySelector("#bsShare").onclick = () => { closeBackstage(); showShare(); };
@@ -848,7 +1095,7 @@
   function applyTheme(name) {
     const t = THEMES[name] ? name : "light";
     document.documentElement.dataset.theme = t;
-    core.setPalette(THEMES[t]);
+    core.setPalette(Object.assign({}, THEMES[t], accentOverride ? { accent: accentOverride } : {}));
     const sw = $("themeSwitch");
     const dark = t === "dark";
     sw.setAttribute("aria-checked", String(dark));
@@ -1013,6 +1260,7 @@
       ctx.stroke();
       ctx.restore();
     }
+    drawObjects(ctx, wrap.scrollLeft, wrap.scrollTop, draw.layer.clientWidth, draw.layer.clientHeight);
   }
 
   function setDrawMode(mode) {
@@ -1030,6 +1278,13 @@
 
   function eraseAt(p) {
     draw.strokes = draw.strokes.filter((s) => !s.pts.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 12));
+    const sx = wrap.scrollLeft, sy = wrap.scrollTop;
+    for (let i = objects.length - 1; i >= 0; i--) {
+      const o = objects[i];
+      const x = o.x - sx, y = o.y - sy;
+      if (p.x >= x && p.x <= x + o.w && p.y >= y && p.y <= y + o.h) objects.splice(i, 1);
+    }
+    redrawInk();
   }
 
   function setupDrawing() {
@@ -1085,6 +1340,329 @@
     core.addRule({ op, a: n, ...RULE_STYLE });
   }
 
+  // ---------- Home tab: Format Cells, Cell Styles, indent, text angle, add-ins ----------
+  const STYLE_KEYS = ["bold", "italic", "underline", "size", "color", "fill", "border", "wrap", "angle", "indent"];
+  const CELL_STYLES = {
+    normal: {},
+    heading: { bold: true, size: 14, color: "#107c41" },
+    title: { bold: true, size: 20 },
+    good: { fill: "#c6efce", color: "#006100" },
+    bad: { fill: "#ffc7ce", color: "#9c0006" },
+    neutral: { fill: "#ffeb9c", color: "#9c5700" },
+    input: { fill: "#f2f2f2", border: true }
+  };
+
+  function activeStyleObj() {
+    const c = core.getCell(core.sel.ar, core.sel.ac);
+    return c ? c.s : {};
+  }
+
+  function applyCellStyle(name) {
+    const reset = Object.fromEntries(STYLE_KEYS.map((k) => [k, null]));
+    core.applyStyle(Object.assign(reset, CELL_STYLES[name] || {}));
+  }
+
+  function bumpIndent(d) {
+    const cur = activeStyleObj().indent || 0;
+    core.applyStyle({ indent: Math.max(0, Math.min(15, cur + d)) || null });
+  }
+
+  function showFormatCells() {
+    const cur = activeStyleObj();
+    const fillInit = cur.fill || "#ffffff";
+    const colorInit = cur.color || "#201f1e";
+    const opt = (v, t, sel) => `<option value="${v}"${sel ? " selected" : ""}>${t}</option>`;
+    const d = dialog("Format Cells",
+      `<div class="fmt-grid">
+        <label>Number<select id="fcNf">${opt("general", "General", !cur.nf || cur.nf === "general")}${opt("number", "Number", cur.nf === "number")}${opt("currency", "Currency", cur.nf === "currency")}${opt("percent", "Percentage", cur.nf === "percent")}</select></label>
+        <label>Horizontal<select id="fcHa">${opt("", "General", !cur.ha)}${opt("left", "Left", cur.ha === "left")}${opt("center", "Center", cur.ha === "center")}${opt("right", "Right", cur.ha === "right")}</select></label>
+        <label>Vertical<select id="fcVa">${opt("top", "Top", cur.va === "top")}${opt("middle", "Middle", cur.va === "middle")}${opt("bottom", "Bottom", !cur.va || cur.va === "bottom")}</select></label>
+        <label>Indent<input type="number" id="fcIndent" min="0" max="15" value="${cur.indent || 0}" /></label>
+        <label>Angle (degrees)<input type="number" id="fcAngle" min="-90" max="90" step="5" value="${cur.angle || 0}" /></label>
+        <label>Fill<input type="color" id="fcFill" value="${fillInit}" data-init="${cur.fill ? "1" : "0"}" /></label>
+        <label>Font colour<input type="color" id="fcColor" value="${colorInit}" /></label>
+        <label class="chk"><input type="checkbox" id="fcBold" ${cur.bold ? "checked" : ""}/> Bold</label>
+        <label class="chk"><input type="checkbox" id="fcItalic" ${cur.italic ? "checked" : ""}/> Italic</label>
+        <label class="chk"><input type="checkbox" id="fcUnder" ${cur.underline ? "checked" : ""}/> Underline</label>
+        <label class="chk"><input type="checkbox" id="fcWrap" ${cur.wrap ? "checked" : ""}/> Wrap text</label>
+        <label class="chk"><input type="checkbox" id="fcBorder" ${cur.border ? "checked" : ""}/> All borders</label>
+      </div>`,
+      [{ label: "Cancel" },
+        { label: "OK", primary: true, onClick: (el) => {
+          const q = (id) => el.querySelector("#" + id);
+          const fillChanged = q("fcFill").value !== fillInit;
+          core.applyStyle({
+            nf: q("fcNf").value === "general" ? null : q("fcNf").value,
+            ha: q("fcHa").value || null,
+            va: q("fcVa").value === "bottom" ? null : q("fcVa").value,
+            indent: Math.max(0, Math.min(15, Number(q("fcIndent").value) || 0)) || null,
+            angle: Number(q("fcAngle").value) || null,
+            fill: fillChanged || cur.fill ? q("fcFill").value : null,
+            color: q("fcColor").value === colorInit && !cur.color ? null : q("fcColor").value,
+            bold: q("fcBold").checked || null,
+            italic: q("fcItalic").checked || null,
+            underline: q("fcUnder").checked || null,
+            wrap: q("fcWrap").checked || null,
+            border: q("fcBorder").checked || null
+          });
+        } }]);
+    return d;
+  }
+
+  function showAddIns() {
+    dialog("Add-ins",
+      `<p>No add-ins are installed in this version of Quadra Office.</p>
+       <p>Add-ins will be listed here when they are available.</p>`,
+      [{ label: "Close", primary: true }]);
+  }
+
+  // ---------- Page Layout: page setup, print preview and printing ----------
+  const MM = 96 / 25.4; // CSS pixels per millimetre
+  const PAPER = { A4: { w: 210, h: 297 }, Letter: { w: 216, h: 279 }, Legal: { w: 216, h: 356 } };
+  const MARGINS = {
+    normal: { t: 19, b: 19, l: 18, r: 18 }, wide: { t: 25, b: 25, l: 25, r: 25 }, narrow: { t: 13, b: 13, l: 8, r: 8 }
+  };
+  const PAGE_KEY = "quadra.pageSetup";
+  const ACCENT_KEY = "quadra.accent";
+  const FONT_KEY = "quadra.font";
+  const PRESETS = {
+    office: { accent: "#107c41", font: "Calibri" }, ocean: { accent: "#0f6cbd", font: "Calibri" },
+    warm: { accent: "#c43e1c", font: "Georgia" }, mono: { accent: "#3b3a39", font: "Arial" }
+  };
+  let accentOverride = localStorage.getItem(ACCENT_KEY);
+  const defaultPage = { orientation: "portrait", size: "A4", margins: "normal", scale: 100, fitW: false, fitH: false, printArea: null, titles: 0, breaks: [] };
+  let pageSetup = Object.assign({}, defaultPage, JSON.parse(localStorage.getItem(PAGE_KEY) || "{}"));
+  const savePage = () => localStorage.setItem(PAGE_KEY, JSON.stringify(pageSetup));
+
+  function usedRect() {
+    let r1 = Infinity, c1 = Infinity, r2 = -1, c2 = -1;
+    for (const k of core.cells.keys()) {
+      const [r, c] = k.split(",").map(Number);
+      const cell = core.getCell(r, c);
+      if (core.cellValue(r, c) === null && !Object.keys(cell.s).length) continue;
+      r1 = Math.min(r1, r); c1 = Math.min(c1, c); r2 = Math.max(r2, r); c2 = Math.max(c2, c);
+    }
+    return r2 < 0 ? null : { r1, c1, r2, c2 };
+  }
+
+  // Splits the print area into pages (down first, then across), honouring scale, fit, breaks and titles
+  function layoutPages() {
+    const area = pageSetup.printArea || usedRect();
+    if (!area) return null;
+    const paper = PAPER[pageSetup.size] || PAPER.A4;
+    const land = pageSetup.orientation === "landscape";
+    const pw = (land ? paper.h : paper.w) * MM, ph = (land ? paper.w : paper.h) * MM;
+    const m = MARGINS[pageSetup.margins] || MARGINS.normal;
+    const availW = pw - (m.l + m.r) * MM, availH = ph - (m.t + m.b) * MM;
+    let scale = pageSetup.scale / 100;
+    if (pageSetup.fitW || pageSetup.fitH) {
+      let fs = 1;
+      if (pageSetup.fitW) fs = Math.min(fs, availW / ((area.c2 - area.c1 + 1) * COL_W));
+      if (pageSetup.fitH) fs = Math.min(fs, availH / ((area.r2 - area.r1 + 1) * ROW_H));
+      scale = fs;
+    }
+    const cellW = availW / scale, cellH = availH / scale;
+    const titleRows = [];
+    for (let r = 0; r < Math.min(pageSetup.titles || 0, 50); r++) titleRows.push(r);
+    const bodyStart = Math.max(area.r1, titleRows.length);
+    const perPage = Math.max(1, Math.floor(cellH / ROW_H) - titleRows.length);
+    const starts = [bodyStart];
+    for (const b of [...pageSetup.breaks].sort((a, b) => a - b)) if (b > bodyStart && b <= area.r2 && b !== starts[starts.length - 1]) starts.push(b);
+    const rowBlocks = [];
+    starts.forEach((from, i) => {
+      const to = i + 1 < starts.length ? starts[i + 1] - 1 : area.r2;
+      for (let s = from; s <= to; s += perPage) rowBlocks.push([s, Math.min(to, s + perPage - 1)]);
+    });
+    const colsPer = Math.max(1, Math.floor(cellW / COL_W));
+    const colBlocks = [];
+    for (let c = area.c1; c <= area.c2; c += colsPer) colBlocks.push([c, Math.min(area.c2, c + colsPer - 1)]);
+    const pages = [];
+    for (const rb of rowBlocks) for (const cb of colBlocks) pages.push({ rows: rb, cols: cb });
+    return { pages, pw, ph, m, scale, titleRows };
+  }
+
+  function pageInnerHtml(pg, L) {
+    const cols = [];
+    for (let c = pg.cols[0]; c <= pg.cols[1]; c++) cols.push(c);
+    const rows = [...L.titleRows.filter((r) => r < pg.rows[0]), ...Array.from({ length: pg.rows[1] - pg.rows[0] + 1 }, (_, i) => pg.rows[0] + i)];
+    const heads = core.sheetOpt.headingsPrint;
+    const grid = core.sheetOpt.gridPrint;
+    const td = (r, c) => {
+      const cell = core.getCell(r, c);
+      const st = cell ? cell.s : {};
+      const v = core.cellValue(r, c);
+      const hit = core.ruleFor(r, c, v);
+      const fill = hit ? hit.fill : st.fill;
+      const color = hit ? hit.color : st.color;
+      const align = st.ha || (typeof v === "number" ? "right" : "left");
+      const valign = { top: "top", middle: "middle" }[st.va] || "bottom";
+      const border = st.border ? "1px solid #000" : grid ? "1px solid #c8c8c8" : "none";
+      const style = `width:${COL_W}px;height:${ROW_H}px;text-align:${align};vertical-align:${valign};` +
+        `border:${border};${fill ? `background:${fill};` : ""}${color ? `color:${color};` : ""}` +
+        `${st.bold ? "font-weight:bold;" : ""}${st.italic ? "font-style:italic;" : ""}` +
+        `${st.underline ? "text-decoration:underline;" : ""}font-size:${Math.round((st.size || 11) * 1.2)}px;` +
+        `font-family:${st.font || "Calibri"},Arial,sans-serif;${st.indent ? `padding-left:${st.indent * 9}px;` : ""}`;
+      return `<td style="${style}">${esc(core.displayText(v, st))}</td>`;
+    };
+    let html = `<table class="pt" style="zoom:${L.scale}">`;
+    if (heads) html += `<tr><th class="ph"></th>${cols.map((c) => `<th class="ph">${engine().indexToCol(c)}</th>`).join("")}</tr>`;
+    for (const r of rows) {
+      html += `<tr>${heads ? `<th class="ph">${r + 1}</th>` : ""}${cols.map((c) => td(r, c)).join("")}</tr>`;
+    }
+    return html + "</table>";
+  }
+
+  function pageSectionHtml(pg, L, inline) {
+    const m = L.m;
+    const style = inline ? "" : `width:${L.pw}px;height:${L.ph}px;padding:${m.t}mm ${m.r}mm ${m.b}mm ${m.l}mm;`;
+    return `<section class="pg" style="${style}">${pageInnerHtml(pg, L)}</section>`;
+  }
+
+  function showPrintPreview() {
+    const L = layoutPages();
+    if (!L) return core.toast("There is nothing to print yet");
+    const k = 0.45;
+    const body = `<div class="pv-wrap">${L.pages.map((pg) =>
+      `<div class="pv-page" style="width:${L.pw * k}px;height:${L.ph * k}px"><div style="transform:scale(${k});transform-origin:0 0;width:${L.pw}px;height:${L.ph}px">${pageSectionHtml(pg, L, false)}</div></div>`
+    ).join("")}</div>
+      <p class="note">${L.pages.length} page${L.pages.length === 1 ? "" : "s"} · ${pageSetup.size} ${pageSetup.orientation} · ` +
+      `${pageSetup.printArea ? "print area set" : "whole used range"} · scale ${Math.round(L.scale * 100)}%</p>`;
+    dialog("Print Preview", body, [
+      { label: "Close", primary: false },
+      { label: "Print", primary: true, onClick: () => { printPages(L); return false; } }
+    ]);
+  }
+
+  // Prints through the browser: only the pages are visible while printing
+  function printPages(L) {
+    const root = $("printRoot");
+    root.innerHTML = L.pages.map((pg) => pageSectionHtml(pg, L, false)).join("");
+    let styleEl = $("pageSizeStyle");
+    if (!styleEl) { styleEl = document.createElement("style"); styleEl.id = "pageSizeStyle"; document.head.appendChild(styleEl); }
+    const paper = PAPER[pageSetup.size] || PAPER.A4;
+    const landscape = pageSetup.orientation === "landscape";
+    styleEl.textContent = `@page { size: ${landscape ? paper.h + "mm " + paper.w + "mm" : paper.w + "mm " + paper.h + "mm"}; margin: 0; }`;
+    window.print();
+    root.innerHTML = "";
+  }
+
+  function setPage(key, value) {
+    pageSetup[key] = value;
+    savePage();
+    core.toast("Page setup updated");
+  }
+
+  function setAccent(hex) {
+    accentOverride = hex;
+    localStorage.setItem(ACCENT_KEY, hex);
+    document.documentElement.style.setProperty("--accent", hex);
+    core.setPalette({ accent: hex });
+  }
+
+  function applyPreset(name) {
+    const preset = PRESETS[name];
+    if (!preset) return;
+    setAccent(preset.accent);
+    setFont(preset.font);
+    core.toast("Theme applied: " + name[0].toUpperCase() + name.slice(1));
+  }
+
+  function setFont(name) {
+    core.setDefaultFont(name);
+    localStorage.setItem(FONT_KEY, name);
+  }
+
+  function pickBackground(remove) {
+    if (remove) { core.setBackground(null); return core.toast("Background removed"); }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const file = input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => { core.setBackground(img); core.toast("Background set for this session"); };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  }
+
+  function setPrintTitles() {
+    const n = prompt("Rows to repeat at the top of every printed page (0 for none):", String(pageSetup.titles || 0));
+    if (n === null) return;
+    const v = Math.max(0, Math.min(50, Math.floor(Number(n)) || 0));
+    setPage("titles", v);
+  }
+
+  function pageBreak(action) {
+    const row = core.sel.ar;
+    if (action === "insert") {
+      if (!pageSetup.breaks.includes(row)) pageSetup.breaks.push(row);
+      core.toast("Page break inserted above row " + (row + 1));
+    } else if (action === "remove") {
+      pageSetup.breaks = pageSetup.breaks.filter((b) => b !== row);
+      core.toast("Page break removed");
+    } else {
+      pageSetup.breaks = [];
+      core.toast("All page breaks removed");
+    }
+    savePage();
+  }
+
+  function printAreaAction(action) {
+    if (action === "set") {
+      const R = core.range();
+      setPage("printArea", { r1: R.r1, c1: R.c1, r2: R.r2, c2: R.c2 });
+    } else {
+      setPage("printArea", null);
+    }
+  }
+
+  // Scale to Fit selectors
+  function scaleCommand(cmd, val) {
+    if (cmd === "scaleW") setPage("fitW", val === "1");
+    else if (cmd === "scaleH") setPage("fitH", val === "1");
+    else setPage("scale", Number(val));
+  }
+
+  // Objects are rotated around their centre; "Send to Back" moves the newest object to the bottom of the stack
+  function rotateObject() {
+    const o = objects[objects.length - 1];
+    if (!o) return core.toast("Insert a shape, text box or picture first");
+    o.rot = ((o.rot || 0) + 90) % 360;
+    redrawInk();
+  }
+
+  function sendObjectBack() {
+    const o = objects.pop();
+    if (!o) return core.toast("Insert a shape, text box or picture first");
+    objects.unshift(o);
+    redrawInk();
+  }
+
+  function applyCore(cmd, val) {
+    switch (cmd) {
+      case "margins": setPage("margins", val); return true;
+      case "orientation": setPage("orientation", val); return true;
+      case "paperSize": setPage("size", val); return true;
+      case "printArea": printAreaAction(val); return true;
+      case "breaks": pageBreak(val); return true;
+      case "background": pickBackground(val === "remove"); return true;
+      case "printTitles": setPrintTitles(); return true;
+      case "scaleW": case "scaleH": case "scale": scaleCommand(cmd, val); return true;
+      case "accent": setAccent(val); return true;
+      case "defaultFont": setFont(val); core.toast("Default font: " + val); return true;
+      case "pageTheme": applyPreset(val); return true;
+      case "rotateObject": rotateObject(); return true;
+      case "sendBack": sendObjectBack(); return true;
+      default: return false;
+    }
+  }
+
   function toggleFullscreen() {
     if (document.fullscreenElement) document.exitFullscreen();
     else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
@@ -1114,18 +1692,32 @@
       case "newBook": openBackstage("new"); return true;
       case "saveBook": saveBook(); return true;
       case "exportCsv": exportCsv(); return true;
-      case "printBook": window.print(); return true;
+      case "printBook": showPrintPreview(); return true;
       case "renameBook": renameBook(); return true;
       case "editingMode": case "viewingMode": case "reviewingMode":
         core.toast("Editing mode is always on in this version"); return true;
       case "themeOffice": core.toast("Office theme is active"); return true;
+      case "formatCells": showFormatCells(); return true;
+      case "addins": showAddIns(); return true;
+      case "indentIn": bumpIndent(-1); return true;
+      case "indentOut": bumpIndent(1); return true;
+      case "angle": core.applyStyle({ angle: Number(val) || null }); return true;
+      case "style": applyCellStyle(val); return true;
+      case "checkbox": insertCheckbox(); return true;
+      case "printPreview": showPrintPreview(); return true;
+      case "pivot": showPivot(); return true;
+      case "picturesFile": insertPicture(); return true;
+      case "onlinePics": showList("Online Pictures", [["Status", "Online image search needs an internet image service, which this version does not include."],
+        ["Alternative", "Use Pictures > This Device to insert an image from your computer."]]); return true;
+      case "shape": insertShape(val); return true;
+      case "textBox": insertTextBox(); return true;
       case "insertRows": core.editLines("row", false); return true;
       case "insertCols": core.editLines("col", false); return true;
       case "deleteRows": core.editLines("row", true); return true;
       case "deleteCols": core.editLines("col", true); return true;
       case "cfRule": addRuleFromPrompt(val); return true;
       case "cfClear": core.clearRules(); return true;
-      default: return false;
+      default: return applyCore(cmd, val);
     }
   }
 
@@ -1165,6 +1757,7 @@
     });
 
     $("themeSwitch").addEventListener("click", toggleTheme);
+    wrap.addEventListener("scroll", redrawInk);
     $("btnShare").addEventListener("click", showShare);
     $("btnStats").addEventListener("click", showStats);
     $("btnInsertFn").addEventListener("click", showInsertFunction);
@@ -1213,6 +1806,9 @@
       setupDrawing();
       const savedTheme = localStorage.getItem(THEME_KEY);
       applyTheme(savedTheme || "light");
+      if (accentOverride) setAccent(accentOverride);
+      const savedFont = localStorage.getItem(FONT_KEY);
+      if (savedFont) core.setDefaultFont(savedFont);
       restoreSession();
       core.onChange(() => { scheduleSave(); updateStatus(); });
       updateStatus();
