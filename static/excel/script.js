@@ -5,7 +5,8 @@
   const HDR_W = 40, HDR_H = 20, COL_W = 64, ROW_H = 20;
   const MAX_ROWS = 1048576, MAX_COLS = 16384;   // Excel's own limits
   const ROW_CHUNK = 500, COL_CHUNK = 100;       // grid grows in chunks as you scroll
-  const DEFAULT_SIZE = 11, DEFAULT_FONT = "Calibri";
+  const DEFAULT_SIZE = 11;
+  let DEFAULT_FONT = "Calibri"; // changed by Page Layout > Fonts
   const DENSE_LIMIT = 20000;
 
   // ---------- DOM ----------
@@ -28,6 +29,7 @@
     selTint: "rgba(16,124,65,0.12)", border: "#323130"
   };
   const listeners = [];
+  let bgImage = null; // sheet background picture (Page Layout > Background)
   const rules = []; // conditional formatting: {r1,c1,r2,c2,op,a,b,fill,color}
   let pendingColor = null, rafId = 0, toastTimer = 0;
 
@@ -194,13 +196,38 @@
     return lines;
   }
 
+  // Checkbox cells: a box in the left part of the cell, ticked when the value is TRUE
+  function drawCheckbox(x, y, on) {
+    const bx = x + 6, by = y + (ROW_H - 13) / 2;
+    ctx.strokeStyle = pal.text; ctx.lineWidth = 1.2;
+    ctx.strokeRect(bx + 0.5, by + 0.5, 12, 12);
+    if (on) {
+      ctx.strokeStyle = pal.accent; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(bx + 3, by + 6.5); ctx.lineTo(bx + 5.5, by + 9.5); ctx.lineTo(bx + 10, by + 3);
+      ctx.stroke();
+    }
+  }
+
   function drawCellText(cell, v, text, x, y) {
     const s = cell.s, size = Math.round((s.size || DEFAULT_SIZE) * 1.2), pad = 4;
     ctx.font = `${s.italic ? "italic " : ""}${s.bold ? "bold " : ""}${size}px ${s.font || DEFAULT_FONT}, Arial, sans-serif`;
     ctx.fillStyle = s.color || pal.text;
     const ha = s.ha || (typeof v === "number" ? "right" : typeof v === "boolean" ? "center" : "left");
     const va = s.va || "bottom";
-    const tx = ha === "center" ? x + COL_W / 2 : ha === "right" ? x + COL_W - pad : x + pad;
+    const ind = (s.indent || 0) * 9;
+    const tx = ha === "center" ? x + COL_W / 2 : ha === "right" ? x + COL_W - pad - ind : x + pad + ind;
+    if (s.angle) {
+      // rotated text is centred in the cell
+      ctx.save();
+      ctx.beginPath(); ctx.rect(x, y, COL_W, ROW_H); ctx.clip();
+      ctx.translate(x + COL_W / 2, y + ROW_H / 2);
+      ctx.rotate(-s.angle * Math.PI / 180);
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+      return;
+    }
     ctx.save();
     ctx.beginPath(); ctx.rect(x, y, COL_W, ROW_H); ctx.clip();
     ctx.textAlign = ha;
@@ -235,6 +262,10 @@
 
     ctx.fillStyle = pal.cell;
     ctx.fillRect(0, 0, W, H);
+    if (bgImage && bgImage.complete && bgImage.naturalWidth) {
+      for (let y0 = 0; y0 < H; y0 += bgImage.naturalHeight)
+        for (let x0 = 0; x0 < W; x0 += bgImage.naturalWidth) ctx.drawImage(bgImage, x0, y0);
+    }
 
     ctx.save();
     ctx.beginPath(); ctx.rect(HDR_W, HDR_H, W - HDR_W, H - HDR_H); ctx.clip();
@@ -283,6 +314,7 @@
         if (editing && r === S.ar && c === S.ac) continue;
         const cell = cells.get(key(r, c));
         if (!cell) continue;
+        if (cell.s.checkbox) { drawCheckbox(X(c), Y(r), cellValue(r, c) === true); continue; }
         const v = cellValue(r, c);
         const text = sheetOpt.showFormulas && cell.v[0] === "=" ? cell.v : displayText(v, cell.s);
         if (text === "") continue;
@@ -602,6 +634,17 @@
     if (editing) commitEdit(0, 0);
     const h = hit(e);
 
+    if (h.t === "cell") {
+      // a click on the box of a checkbox cell toggles it
+      const cb = getCell(h.r, h.c);
+      const cellLeft = HDR_W + h.c * COL_W - wrap.scrollLeft;
+      if (cb && cb.s.checkbox && pos(e).x - cellLeft < 22) {
+        if (sheetProtected) return toast("Sheet is protected. Unprotect it to edit.");
+        setValue(h.r, h.c, cellValue(h.r, h.c) === true ? "FALSE" : "TRUE");
+        refresh();
+        return;
+      }
+    }
     if (e.ctrlKey && h.t === "cell") {
       const linked = getCell(h.r, h.c);
       if (linked && linked.link) { window.open(linked.link, "_blank", "noopener"); return; }
@@ -1202,6 +1245,8 @@
       refresh();
     },
     undo, redo, requestDraw, relayout: resize,
+    setDefaultFont: (f) => { DEFAULT_FONT = f; refresh(); },
+    setBackground: (img) => { bgImage = img; requestDraw(); },
     addRule, clearRules, editLines, ruleFor, rules
   };
 
