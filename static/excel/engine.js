@@ -30,7 +30,11 @@
   const isError = (v) => v instanceof CellError;
 
   class RangeVal {
-    constructor(values) { this.values = values; }
+    constructor(values, rows, cols) {
+      this.values = values;
+      this.rows = rows;
+      this.cols = cols;
+    }
   }
 
   const MAX_RANGE_CELLS = 200000;
@@ -180,7 +184,7 @@
       if (!t) throw new SyntaxError("unexpected end of formula");
       if (t.t === "num" || t.t === "str" || t.t === "bool") { p++; return { type: "lit", v: t.v }; }
       if (t.t === "errlit") { p++; return { type: "err", code: t.v }; }
-      if (t.t === "name") { p++; return { type: "err", code: ERR.NAME }; }
+      if (t.t === "name") { p++; return { type: "name", name: t.v }; }
       if (t.t === "ref") {
         p++;
         if (isOp(":")) {
@@ -321,13 +325,13 @@
       case "range": {
         const r1 = Math.min(node.a.row, node.b.row), r2 = Math.max(node.a.row, node.b.row);
         const c1 = Math.min(node.a.col, node.b.col), c2 = Math.max(node.a.col, node.b.col);
-        if (r1 < 0 || c1 < 0 || r2 >= env.maxRows || c2 >= env.maxCols) return err(ERR.REF);
-        if ((r2 - r1 + 1) * (c2 - c1 + 1) > MAX_RANGE_CELLS) return err(ERR.VALUE);
-        const values = [];
-        for (let r = r1; r <= r2; r++) {
-          for (let c = c1; c <= c2; c++) values.push(env.cell(r, c));
-        }
-        return new RangeVal(values);
+        return rangeOf(r1, c1, r2, c2, env);
+      }
+      case "name": {
+        const rect = env.name ? env.name(node.name) : null;
+        if (!rect) return err(ERR.NAME);
+        if (rect.r1 === rect.r2 && rect.c1 === rect.c2) return env.cell(rect.r1, rect.c1);
+        return rangeOf(rect.r1, rect.c1, rect.r2, rect.c2, env);
       }
       case "unary": {
         const n = toNumber(scalarOf(evaluate(node.arg, env)));
@@ -370,6 +374,17 @@
       case "call": return callFunction(node.name, node.args, env);
       default: return err(ERR.VALUE);
     }
+  }
+
+  function rangeOf(r1, c1, r2, c2, env) {
+    if (r1 < 0 || c1 < 0 || r2 >= env.maxRows || c2 >= env.maxCols) return err(ERR.REF);
+    const rows = r2 - r1 + 1, cols = c2 - c1 + 1;
+    if (rows * cols > MAX_RANGE_CELLS) return err(ERR.VALUE);
+    const values = [];
+    for (let r = r1; r <= r2; r++) {
+      for (let c = c1; c <= c2; c++) values.push(env.cell(r, c));
+    }
+    return new RangeVal(values, rows, cols);
   }
 
   // Every argument flattened into one list. Errors are returned immediately.
@@ -586,6 +601,101 @@
         if (start < 1 || len < 0) return err(ERR.VALUE);
         return t.substr(Math.floor(start) - 1, Math.floor(len));
       }
+      case "VLOOKUP":
+      case "HLOOKUP": {
+        if (!argc(3, 4)) return err(ERR.VALUE);
+        const key = one(0);
+        if (isError(key)) return key;
+        const table = evaluate(args[1], env);
+        if (!(table instanceof RangeVal)) return err(ERR.VALUE);
+        const idx = toNumber(one(2));
+        if (isError(idx)) return idx;
+        const exact = n === 4 ? toBool(one(3)) === false : false;
+        const vert = name === "VLOOKUP";
+        const lines = vert ? table.rows : table.cols;
+        const span = vert ? table.cols : table.rows;
+        if (idx < 1 || idx > span) return err(ERR.REF);
+        const at = (i, j) => (vert ? table.values[i * table.cols + j] : table.values[j * table.cols + i]);
+        let found = -1;
+        for (let i = 0; i < lines; i++) {
+          const c = compareValues(at(i, 0), key);
+          if (exact) { if (c === 0) { found = i; break; } }
+          else if (c <= 0) found = i;
+          else break;
+        }
+        if (found < 0) return err(ERR.NA);
+        return at(found, Math.floor(idx) - 1);
+      }
+      case "INDEX": {
+        if (!argc(2, 3)) return err(ERR.VALUE);
+        const table = evaluate(args[0], env);
+        if (!(table instanceof RangeVal)) return err(ERR.VALUE);
+        const r = toNumber(one(1));
+        if (isError(r)) return r;
+        const c = n === 3 ? toNumber(one(2)) : 1;
+        if (isError(c)) return c;
+        let row = Math.floor(r), col = Math.floor(c);
+        if (n === 2 && table.cols === 1) col = 1;          // one column: INDEX(range, row)
+        else if (n === 2 && table.rows === 1) { col = row; row = 1; } // one row: INDEX(range, col)
+        if (row < 1 || col < 1 || row > table.rows || col > table.cols) return err(ERR.REF);
+        return table.values[(row - 1) * table.cols + (col - 1)];
+      }
+      case "MATCH": {
+        if (!argc(2, 3)) return err(ERR.VALUE);
+        const key = one(0);
+        if (isError(key)) return key;
+        const table = evaluate(args[1], env);
+        if (!(table instanceof RangeVal)) return err(ERR.VALUE);
+        const type = n === 3 ? toNumber(one(2)) : 1;
+        if (isError(type)) return type;
+        const vals = table.values;
+        if (type === 0) {
+          for (let i = 0; i < vals.length; i++) if (compareValues(vals[i], key) === 0) return i + 1;
+          return err(ERR.NA);
+        }
+        let found = -1;
+        for (let i = 0; i < vals.length; i++) {
+          const c = compareValues(vals[i], key);
+          if (type > 0 ? c <= 0 : c >= 0) found = i; else break;
+        }
+        return found < 0 ? err(ERR.NA) : found + 1;
+      }
+      case "TODAY":
+      case "NOW": {
+        const days = (Date.now() - EPOCH_MS) / 86400000;
+        return name === "TODAY" ? Math.floor(days) : days;
+      }
+      case "DATE": {
+        if (!argc(3, 3)) return err(ERR.VALUE);
+        const y = toNumber(one(0)), m = toNumber(one(1)), d = toNumber(one(2));
+        if (isError(y)) return y;
+        if (isError(m)) return m;
+        if (isError(d)) return d;
+        return Math.round((Date.UTC(y, m - 1, d) - EPOCH_MS) / 86400000);
+      }
+      case "YEAR":
+      case "MONTH":
+      case "DAY": {
+        if (!argc(1, 1)) return err(ERR.VALUE);
+        const serial = toNumber(one(0));
+        if (isError(serial)) return serial;
+        const dt = new Date(EPOCH_MS + Math.floor(serial) * 86400000);
+        if (name === "YEAR") return dt.getUTCFullYear();
+        if (name === "MONTH") return dt.getUTCMonth() + 1;
+        return dt.getUTCDate();
+      }
+      case "PMT": {
+        if (!argc(3, 5)) return err(ERR.VALUE);
+        const vals = [0, 1, 2, 3, 4].map((i) => (i < n ? toNumber(one(i)) : 0));
+        const bad = vals.find((v) => isError(v));
+        if (bad) return bad;
+        const [rate, nper, pv] = vals;
+        const fv = n >= 4 ? vals[3] : 0, t = n >= 5 ? vals[4] : 0;
+        if (nper === 0) return err(ERR.NUM);
+        if (rate === 0) return -(pv + fv) / nper;
+        const f = Math.pow(1 + rate, nper);
+        return -(rate * (pv * f + fv)) / (f - 1) / (t ? 1 + rate : 1);
+      }
       default:
         return err(ERR.NAME);
     }
@@ -610,6 +720,65 @@
       out = out.slice(0, t.start) + text + out.slice(t.end);
     }
     return "=" + out;
+  }
+
+  // Excel date serial 1 = 1900-01-01, counted from 1899-12-30
+  const EPOCH_MS = Date.UTC(1899, 11, 30);
+
+  // Cells referenced by a formula, as rectangles (a range is one rectangle)
+  function referencesOf(raw) {
+    if (typeof raw !== "string" || raw.length < 2 || raw[0] !== "=") return [];
+    let tokens;
+    try { tokens = tokenize(raw.slice(1)); } catch (e) { return []; }
+    const out = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      if (t.t !== "ref") continue;
+      const a = t.v;
+      const nx = tokens[i + 1], nn = tokens[i + 2];
+      if (nx && nx.t === "op" && nx.v === ":" && nn && nn.t === "ref") {
+        const b = nn.v;
+        out.push({ r1: Math.min(a.row, b.row), c1: Math.min(a.col, b.col), r2: Math.max(a.row, b.row), c2: Math.max(a.col, b.col) });
+        i += 2;
+      } else {
+        out.push({ r1: a.row, c1: a.col, r2: a.row, c2: a.col });
+      }
+    }
+    return out;
+  }
+
+  // The formula text with each reference replaced by the value it holds now (Evaluate Formula)
+  function substituteRefs(raw, valueOf) {
+    if (typeof raw !== "string" || raw.length < 2 || raw[0] !== "=") return raw;
+    const body = raw.slice(1);
+    let tokens;
+    try { tokens = tokenize(body); } catch (e) { return raw; }
+    const show = (v) => {
+      if (isError(v)) return v.code;
+      if (v === null) return "0";
+      if (typeof v === "string") return '"' + v + '"';
+      if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
+      return numToText(v);
+    };
+    let out = body;
+    for (let i = tokens.length - 1; i >= 0; i--) {
+      const t = tokens[i];
+      if (t.t !== "ref") continue;
+      const prev = tokens[i - 1], nx = tokens[i + 1], nn = tokens[i + 2];
+      if (prev && prev.t === "op" && prev.v === ":") continue; // the end of a range, handled with its start
+      let text, end = t.end;
+      if (nx && nx.t === "op" && nx.v === ":" && nn && nn.t === "ref") {
+        const rect = referencesOf("=" + body.slice(t.start, nn.end))[0];
+        const parts = [];
+        for (let r = rect.r1; r <= rect.r2; r++) for (let c = rect.c1; c <= rect.c2; c++) parts.push(show(valueOf(r, c)));
+        text = "{" + parts.join(",") + "}";
+        end = nn.end;
+      } else {
+        text = show(valueOf(t.v.row, t.v.col));
+      }
+      out = out.slice(0, t.start) + text + out.slice(end);
+    }
+    return out;
   }
 
   // ---------- Public functions ----------
@@ -665,6 +834,8 @@
     evaluateFormula,
     shiftFormula,
     remapFormula,
+    referencesOf,
+    substituteRefs,
     compareValues,
     colToIndex,
     indexToCol,
