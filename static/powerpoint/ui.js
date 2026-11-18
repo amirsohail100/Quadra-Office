@@ -12,7 +12,7 @@
   const QUI = window.QUI = {};
 
   // ================= persistent UI state =================
-  let ui = { tab: 'Home', notes: false, ruler: false, thumbsCollapsed: false, ribbonCollapsed: false };
+  let ui = { tab: 'Home', notes: false, ruler: false, thumbsCollapsed: false, ribbonCollapsed: false, grid: false, snap: false, units: /-IN$|^hi/i.test(navigator.language || '') ? 'cm' : 'in', reader: null };
   try { ui = Object.assign(ui, JSON.parse(localStorage.getItem(UI_KEY)) || {}); } catch (e) { /* ignore */ }
   const saveUi = () => { try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch (e) { /* ignore */ } };
 
@@ -183,9 +183,13 @@
       localStorage.setItem(docKey(index.current), JSON.stringify({ v: 1, saved: Date.now(), cur: E.cur, pres: E.pres.toJSON() }));
       const en = curEntry();
       if (en) { en.name = E.pres.name; en.updated = Date.now(); if (!en.verAt) en.verAt = Date.now(); else if (Date.now() - en.verAt > 300000) snapshotVersion('Autosaved version'); }
-      saveIndex(); setStatus('saved');
-    } catch (e) { setStatus('error'); }
+      saveIndex(); setStatus('saved'); storageWarned = false;
+    } catch (e) {
+      setStatus('error');
+      if (!storageWarned) { storageWarned = true; showDialog({ title: 'Cannot save', body: '<p id="storageFull">The browser storage is full, so the latest changes are not saved. Remove large pictures or old presentations (File → Open → My presentations), or download a copy with File → Create a copy.</p>' }); }
+    }
   }
+  let storageWarned = false;
   QUI.saveNow = saveNow;
   function scheduleSave() { setStatus('saving'); clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 400); }
   window.addEventListener('pagehide', saveNow);
@@ -200,22 +204,6 @@
   const toggleTheme = () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
 
   // ================= dialogs for features =================
-  const SHORTCUTS = [
-    ['Ctrl+M', 'New slide'], ['Ctrl+C / X / V', 'Copy, cut, paste shapes'], ['Ctrl+D', 'Duplicate shape (or slide when thumbnails are focused)'],
-    ['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+A', 'Select all shapes on the slide'], ['Delete', 'Delete shape (or slide when thumbnails are focused)'],
-    ['Arrow keys', 'Nudge selected shapes by 5 (Shift: 1)'], ['Enter / F2 / double-click', 'Edit text of the selected shape'], ['Typing', 'Starts editing the selected shape'],
-    ['Esc', 'Leave text editing, then clear selection'], ['Shift+click', 'Add or remove a shape from the selection'], ['F5', 'Slide show from beginning'],
-    ['Shift+F5', 'Slide show from current slide'], ['Space / → / ↓ / Enter', 'Slide show: next'], ['← / ↑ / Backspace', 'Slide show: previous'], ['Esc', 'Slide show: exit'],
-  ];
-  function shortcutsDialog() {
-    showDialog({ title: 'Keyboard shortcuts', wide: true, body: '<table class="kbd-table">' + SHORTCUTS.map((s) => '<tr><td>' + esc(s[0]) + '</td><td>' + esc(s[1]) + '</td></tr>').join('') + '</table>' });
-  }
-  function helpDialog() {
-    showDialog({ title: 'Help', body: '<p><b>Slides:</b> use the panel on the left to select, drag to reorder, right-click for more.</p><p><b>Shapes:</b> Insert → Shapes or Text Box; drag to move, use the handles to resize and rotate.</p><p><b>Text:</b> double-click a shape or just start typing while it is selected.</p><p><b>Slide show:</b> F5. <b>Export:</b> File → Export (PDF or PNG).</p><p>Your work is saved automatically in this browser.</p>' });
-  }
-  function whatsNewDialog() {
-    showDialog({ title: 'What’s new', body: '<p><b>Version 1</b></p><ul><li>Ribbon with all ten tabs plus Draw</li><li>Shapes, text boxes, pictures and pen ink</li><li>Themes, layouts, 16:9 and 4:3 slide size</li><li>Fade transitions and entrance animations in the slide show</li><li>PDF and PNG export, autosave</li></ul>' });
-  }
   function aboutDialog() { showDialog({ title: 'About', body: '<p><b>Quadra PowerPoint</b> — version 1</p><p>A browser based presentation editor. Everything stays on your device.</p>' }); }
   function footerDialog() {
     showDialog({
@@ -234,7 +222,7 @@
     else {
       body.innerHTML = '<p>' + issues.length + ' issue' + (issues.length > 1 ? 's' : '') + ' found:</p>';
       const ul = el('ul', 'issues');
-      issues.forEach((it) => { const li = el('li'); const a = el('button', 'sb-link'); a.textContent = it.msg; a.dataset.slide = it.slide; if (it.shapeId) a.dataset.shape = it.shapeId; li.appendChild(a); ul.appendChild(li); });
+      issues.forEach((it) => { const li = el('li'); const a = el('button', 'sb-link'); a.textContent = (it.level === 'error' ? 'Error: ' : 'Warning: ') + it.msg; a.dataset.slide = it.slide; if (it.shapeId) a.dataset.shape = it.shapeId; li.appendChild(a); ul.appendChild(li); });
       ul.addEventListener('click', (ev) => {
         const li = ev.target.closest('li'); const a = li && li.querySelector('button'); if (!a) return;
         dlg.close(); E.selectSlide(Number(a.dataset.slide)); if (a.dataset.shape) E.select([a.dataset.shape]);
@@ -1137,24 +1125,315 @@
   let cmCursor = -1;
   function commentDialog() {
     showDialog({ title: 'New Comment', body: '<label class="row" style="align-items:flex-start"><textarea id="cmText" rows="4" placeholder="Type your comment" style="flex:1;border:1px solid var(--muted);border-radius:4px;background:var(--panel);color:var(--text);padding:6px;font:inherit"></textarea></label>',
-      buttons: [{ label: 'Cancel' }, { label: 'Post', primary: true, act: 'cmPost', run: (d) => { const t = d.querySelector('#cmText').value.trim(); if (!t) return false; E.mutate(() => E.pres.addComment(E.cur, t), 'meta'); E.renderCanvas(); } }] });
+      buttons: [{ label: 'Cancel' }, { label: 'Post', primary: true, act: 'cmPost', run: (d) => { const t = d.querySelector('#cmText').value.trim(); if (!t) return false; E.mutate(() => E.pres.addComment(E.cur, t, getAuthor()), 'meta'); E.renderCanvas(); } }] });
   }
-  function viewComment(k) {
-    const all = E.pres.allComments(); if (!all.length) return;
-    cmCursor = ((k % all.length) + all.length) % all.length; const it = all[cmCursor];
-    E.selectSlide(it.slide);
-    showDialog({ title: 'Comment ' + (cmCursor + 1) + ' of ' + all.length, body: '<p><b>' + esc(it.comment.author) + '</b> · ' + esc(new Date(it.comment.t).toLocaleString()) + ' · slide ' + (it.slide + 1) + '</p><p id="cmBody">' + esc(it.comment.text) + '</p>',
-      buttons: [{ label: 'Delete', act: 'cmDelete', run: () => { E.mutate(() => E.pres.removeComment(it.slide, it.comment.id), 'meta'); E.renderCanvas(); cmCursor = -1; } }, { label: 'Close', primary: true }] });
-  }
+  function viewComment(k) { commentView(k); }
   function commentsPane() {
-    const body = el('div');
+    const body = el('div'); let dlg;
     const draw = () => {
-      const all = E.pres.allComments();
-      body.innerHTML = all.length ? '<table class="kbd-table" id="cmTable">' + all.map((it, k) => '<tr><td>Slide ' + (it.slide + 1) + '</td><td>' + esc(it.comment.text) + '</td><td><button class="btn" data-cmdel="' + k + '">Delete</button></td></tr>').join('') + '</table>' : '<p id="cmEmpty">There are no comments in this presentation.</p>';
+      const all = E.pres.allComments(), me = getAuthor();
+      body.innerHTML = all.length ? '<table class="kbd-table" id="cmTable">' + all.map((it, k) => '<tr' + (it.comment.resolved ? ' style="opacity:.55"' : '') + '><td>Slide ' + (it.slide + 1) + '</td><td>' + (it.comment.seenBy.indexOf(me) < 0 ? '<b>● </b>' : '') + esc(it.comment.author) + ': ' + esc(it.comment.text) + (it.comment.replies.length ? ' <small>(' + it.comment.replies.length + ' repl' + (it.comment.replies.length > 1 ? 'ies' : 'y') + ')</small>' : '') + (it.comment.resolved ? ' <small>resolved</small>' : '') + '</td><td style="white-space:nowrap"><button class="btn" data-cmopen="' + k + '">Open</button> <button class="btn" data-cmdel="' + k + '">Delete</button></td></tr>').join('') + '</table>' : '<p id="cmEmpty">There are no comments in this presentation.</p>';
     };
     draw();
-    body.addEventListener('click', (ev) => { const b = ev.target.closest('[data-cmdel]'); if (!b) return; const it = E.pres.allComments()[Number(b.dataset.cmdel)]; if (it) { E.mutate(() => E.pres.removeComment(it.slide, it.comment.id), 'meta'); E.renderCanvas(); draw(); } });
-    showDialog({ title: 'Comments', wide: true, body, buttons: [{ label: 'Close', primary: true }] });
+    body.addEventListener('click', (ev) => {
+      const o = ev.target.closest('[data-cmopen]'), b = ev.target.closest('[data-cmdel]');
+      if (o) { dlg.close(); commentView(Number(o.dataset.cmopen)); }
+      else if (b) { const it = E.pres.allComments()[Number(b.dataset.cmdel)]; if (it) { E.mutate(() => E.pres.removeComment(it.slide, it.comment.id), 'meta'); E.renderCanvas(); draw(); } }
+    });
+    dlg = showDialog({ title: 'Comments', wide: true, body, buttons: [{ label: 'Close', primary: true }] });
+  }
+
+  // ================= display name (comment author, avatar) =================
+  const AUTHOR_KEY = 'quadra-ppt:author', CONFIG = Object.assign({ supportEmail: '', version: '4.0' }, window.QUADRA_CONFIG || {});
+  const getAuthor = () => { try { return (localStorage.getItem(AUTHOR_KEY) || '').trim() || 'Quadra user'; } catch (e) { return 'Quadra user'; } };
+  const initials = (n) => n.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0)).join('').toUpperCase() || 'Q';
+  function applyAuthor() { const n = getAuthor(); $('profileBtn').textContent = initials(n); $('profileBtn').title = n; E.author = getAuthor; }
+  function nameDialog() {
+    showDialog({ title: 'Display name', body: '<p>This name is used for your comments and replies.</p><label class="row">Name <input type="text" id="nameInput" maxlength="40"></label>',
+      buttons: [{ label: 'Cancel' }, { label: 'Save', primary: true, act: 'nameSave', run: (d) => { const v = d.querySelector('#nameInput').value.trim(); if (!v) return false; try { localStorage.setItem(AUTHOR_KEY, v); } catch (e) { /* ignore */ } applyAuthor(); E.renderCanvas(); scheduleRefresh(); } }] });
+    $('nameInput').value = getAuthor(); $('nameInput').select();
+  }
+  function clearLocalData() {
+    confirmDialog('Clear local data', 'This deletes every presentation, version, setting and feedback note stored by Quadra PowerPoint in this browser. Download anything you want to keep first. Continue?', 'Delete everything', () => {
+      window.__QUADRA_NOSAVE = true;
+      try { Object.keys(localStorage).filter((k) => k.indexOf('quadra-ppt:') === 0).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* ignore */ }
+      location.reload();
+    });
+  }
+
+  // ================= proofing: spelling, custom dictionary, review =================
+  let spellerP = null;
+  function loadSpeller() {
+    if (spellerP) return spellerP;
+    spellerP = new Promise((res, rej) => {
+      const make = () => { try { res(Q.makeSpeller(window.QDICT.aff, window.QDICT.dic)); } catch (e) { spellerP = null; rej(e); } };
+      if (window.QDICT) { make(); return; }
+      const s = el('script'); s.src = 'assets/dict-en.js'; s.onload = make; s.onerror = () => { spellerP = null; rej(new Error('dictionary')); }; document.head.appendChild(s);
+    });
+    return spellerP;
+  }
+  const UD_KEY = 'quadra-ppt:userdict';
+  const userDict = () => { try { return new Set(JSON.parse(localStorage.getItem(UD_KEY)) || []); } catch (e) { return new Set(); } };
+  const saveUserDict = (set) => { try { localStorage.setItem(UD_KEY, JSON.stringify(Array.from(set))); } catch (e) { /* ignore */ } };
+  async function spellingDialog() {
+    let sp; try { sp = await loadSpeller(); } catch (e) { showDialog({ title: 'Spelling', body: '<p>The dictionary file (assets/dict-en.js) could not be loaded.</p>' }); return; }
+    const session = new Set(), ignored = new Set(); let cur = null;
+    const ignoreSet = () => { const s = userDict(); session.forEach((w) => s.add(w)); return s; };
+    const key = (o) => [o.slide, o.shapeId, o.field, o.r, o.c, o.index, o.word].join('|');
+    const body = el('div'); body.id = 'spellBody';
+    let dlg;
+    const draw = () => {
+      cur = Q.spellIssues(E.pres, sp, ignoreSet()).find((o) => !ignored.has(key(o)));
+      const btns = dlg ? dlg.el.querySelectorAll('[data-act^="sp"]') : [];
+      if (!cur) { body.innerHTML = '<p id="spDone">Spell check complete. No more possible mistakes.</p>'; btns.forEach((b) => { b.disabled = true; }); return; }
+      btns.forEach((b) => { b.disabled = false; });
+      if (E.cur !== cur.slide) E.selectSlide(cur.slide);
+      if (cur.shapeId) E.select([cur.shapeId]);
+      const text = Q.spellText(E.pres, cur), ctx = text.slice(Math.max(0, cur.index - 28), cur.index + cur.word.length + 28).replace(/\n/g, ' ');
+      const sug = sp.suggest(cur.word, 6);
+      body.innerHTML = '<p>Not in dictionary: <b id="spWord">' + esc(cur.word) + '</b> <span style="color:var(--muted)">(slide ' + (cur.slide + 1) + ')</span></p><p id="spCtx" style="color:var(--muted)">…' + esc(ctx) + '…</p><label class="row">Change to <input type="text" id="spTo" value="' + esc(sug[0] || cur.word) + '"></label><select id="spSugg" size="6" style="width:100%;border:1px solid var(--muted);border-radius:4px;background:var(--panel);color:var(--text)">' + (sug.length ? sug.map((x) => '<option>' + esc(x) + '</option>').join('') : '<option disabled>(no suggestions)</option>') + '</select>';
+      body.querySelector('#spSugg').addEventListener('change', (ev) => { body.querySelector('#spTo').value = ev.target.value; });
+    };
+    const to = () => body.querySelector('#spTo').value.trim();
+    dlg = showDialog({ title: 'Spelling', wide: true, body, buttons: [
+      { label: 'Ignore', act: 'spIgnore', run: () => { if (cur) ignored.add(key(cur)); draw(); return false; } },
+      { label: 'Ignore All', act: 'spIgnoreAll', run: () => { if (cur) session.add(cur.word.toLowerCase()); draw(); return false; } },
+      { label: 'Add to Dictionary', act: 'spAdd', run: () => { if (cur) { const u = userDict(); u.add(cur.word.toLowerCase()); saveUserDict(u); } draw(); return false; } },
+      { label: 'Change', act: 'spChange', run: () => { if (cur && to()) { const c = cur, r = to(); E.mutate(() => Q.spellReplace(E.pres, c, r)); } draw(); return false; } },
+      { label: 'Change All', act: 'spChangeAll', run: () => { if (cur && to()) { const w = cur.word, r = to(); E.mutate(() => Q.spellReplaceAll(E.pres, sp, w, r)); } draw(); return false; } },
+      { label: 'Close', primary: true }] });
+    draw();
+  }
+  function customDictDialog() {
+    const body = el('div');
+    const draw = () => { const w = Array.from(userDict()).sort(); body.innerHTML = w.length ? '<table class="kbd-table" id="udTable">' + w.map((x) => '<tr><td>' + esc(x) + '</td><td><button class="btn" data-ud="' + esc(x) + '">Remove</button></td></tr>').join('') + '</table>' : '<p id="udEmpty">Your custom dictionary is empty. Use "Add to Dictionary" while checking spelling.</p>'; };
+    draw(); body.addEventListener('click', (ev) => { const b = ev.target.closest('[data-ud]'); if (!b) return; const u = userDict(); u.delete(b.dataset.ud); saveUserDict(u); draw(); });
+    showDialog({ title: 'Custom dictionary', body, buttons: [{ label: 'Close', primary: true }] });
+  }
+  function proofingMenu(b) {
+    openMenu(b, [
+      { label: 'Spelling…', icon: 'spell', id: 'proof-spelling', run: spellingDialog },
+      { label: 'Word Count', icon: 'footer', id: 'proof-words', run: wordCountDialog },
+      { label: 'Custom dictionary…', icon: 'f-open', id: 'proof-dict', run: customDictDialog }, { sep: true },
+      { label: 'Language: English (US)', disabled: true, check: undefined },
+    ]);
+  }
+  async function reviewDialog() {
+    let n = null; try { const sp = await loadSpeller(); n = Q.spellIssues(E.pres, sp, userDict()).length; } catch (e) { /* review without spelling */ }
+    const issues = Q.reviewIssues(E.pres, n);
+    const cnt = (l) => issues.filter((i) => i.level === l).length;
+    const body = el('div'); body.id = 'reviewBody';
+    const icon = { error: '●', warning: '▲', tip: '◆' }, col = { error: 'var(--ic-red)', warning: 'var(--ic-orange)', tip: 'var(--ic-blue)' };
+    body.innerHTML = '<p id="rvSummary"><b>' + cnt('error') + '</b> errors · <b>' + cnt('warning') + '</b> warnings · <b>' + cnt('tip') + '</b> tips' + (n == null ? ' · spelling was not checked' : '') + '</p>' +
+      (issues.length ? ['Accessibility', 'Content'].map((area) => { const list = issues.filter((i) => i.area === area); return list.length ? '<h3 style="margin:10px 0 4px;font-size:14px">' + area + '</h3><ul class="issues">' + list.map((i) => '<li data-level="' + i.level + '"><button class="sb-link" data-slide="' + (i.slide == null ? '' : i.slide) + '" data-shape="' + (i.shapeId || '') + '"><span style="color:' + col[i.level] + '">' + icon[i.level] + '</span> ' + esc(i.msg) + '</button></li>').join('') + '</ul>' : ''; }).join('') : '<p id="rvClean">' + '✓ Nothing to improve. Nice work!' + '</p>');
+    body.addEventListener('click', (ev) => { const b = ev.target.closest('[data-slide]'); if (!b || b.dataset.slide === '') return; dlg.close(); E.selectSlide(Number(b.dataset.slide)); if (b.dataset.shape) E.select([b.dataset.shape]); });
+    const dlg = showDialog({ title: 'Review Presentation', wide: true, body });
+  }
+  function changesDialog() {
+    const vs = versions(index.current);
+    if (!vs.length) { showDialog({ title: 'Show Changes', body: '<p id="chNone">There is no earlier version to compare with yet. Open <b>File → Version history</b> and choose <b>Save a version now</b>; later you can see what changed since then.</p>' }); return; }
+    const body = el('div'); body.id = 'changesBody';
+    const draw = (k) => {
+      const old = Q.Presentation.fromJSON(vs[k].data), list = Q.diffPresentations(old, E.pres);
+      body.querySelector('#chList').innerHTML = list.length ? '<ul class="issues">' + list.map((c) => '<li><button class="sb-link" data-slide="' + (c.slide == null ? '' : c.slide) + '" data-shape="' + (c.shapeId || '') + '">' + esc(c.text) + '</button></li>').join('') + '</ul>' : '<p id="chSame">No changes since this version.</p>';
+    };
+    body.innerHTML = '<label class="row">Compare with <select id="chVer">' + vs.map((v, k) => '<option value="' + k + '">' + esc(new Date(v.t).toLocaleString() + ' · ' + v.label) + '</option>').join('') + '</select></label><div id="chList"></div>';
+    body.querySelector('#chVer').addEventListener('change', (ev) => draw(Number(ev.target.value)));
+    body.addEventListener('click', (ev) => { const b = ev.target.closest('[data-slide]'); if (!b || b.dataset.slide === '') return; dlg.close(); E.selectSlide(Math.min(Number(b.dataset.slide), E.pres.slides.length - 1)); if (b.dataset.shape && E.shape(b.dataset.shape)) E.select([b.dataset.shape]); });
+    const dlg = showDialog({ title: 'Show Changes', wide: true, body }); draw(0);
+  }
+
+  // ================= comments (replies, resolve, unread) =================
+  function commentView(k) {
+    const all = E.pres.allComments(); if (!all.length) return;
+    cmCursor = ((k % all.length) + all.length) % all.length; const it = all[cmCursor], me = getAuthor();
+    E.selectSlide(it.slide);
+    if (it.comment.seenBy.indexOf(me) < 0) { E.mutate(() => E.pres.markRead(it.slide, it.comment.id, me), 'meta'); E.renderCanvas(); }
+    const body = el('div');
+    const draw = () => {
+      const c = E.pres.allComments().find((x) => x.comment.id === it.comment.id).comment;
+      body.innerHTML = '<p><b>' + esc(c.author) + '</b> · ' + esc(new Date(c.t).toLocaleString()) + ' · slide ' + (it.slide + 1) + (c.resolved ? ' · <span id="cmResolved" style="color:var(--ic-green)">Resolved</span>' : '') + '</p><p id="cmBody">' + esc(c.text) + '</p>' +
+        (c.replies.length ? '<div id="cmReplies">' + c.replies.map((r) => '<p style="margin:4px 0 4px 14px;border-left:3px solid var(--border);padding-left:8px"><b>' + esc(r.author) + '</b>: ' + esc(r.text) + '</p>').join('') + '</div>' : '') +
+        '<label class="row" style="align-items:flex-start"><textarea id="cmReply" rows="2" placeholder="Reply" style="flex:1;border:1px solid var(--muted);border-radius:4px;background:var(--panel);color:var(--text);padding:6px;font:inherit"></textarea></label>';
+      dlg.el.querySelector('[data-act="cmResolve"]').textContent = c.resolved ? 'Reopen' : 'Resolve';
+    };
+    const dlg = showDialog({ title: 'Comment ' + (cmCursor + 1) + ' of ' + all.length, body, buttons: [
+      { label: 'Reply', act: 'cmReplyBtn', run: () => { const t = body.querySelector('#cmReply').value.trim(); if (t) { E.mutate(() => E.pres.replyComment(it.slide, it.comment.id, t, me), 'meta'); draw(); } return false; } },
+      { label: 'Resolve', act: 'cmResolve', run: () => { const c = E.pres.allComments().find((x) => x.comment.id === it.comment.id).comment; E.mutate(() => E.pres.setResolved(it.slide, it.comment.id, !c.resolved), 'meta'); E.renderCanvas(); draw(); return false; } },
+      { label: 'Delete', act: 'cmDelete', run: () => { E.mutate(() => E.pres.removeComment(it.slide, it.comment.id), 'meta'); E.renderCanvas(); cmCursor = -1; } },
+      { label: 'Close', primary: true }] });
+    draw();
+  }
+
+  // ================= Immersive Reader =================
+  let reader = null;
+  function startReader() {
+    if (E.showActive) return;
+    E.stopEdit(); closeMenus(); E.showActive = true;
+    const root = $('readerRoot'); root.hidden = false;
+    const P = Object.assign({ theme: 'light', size: 30, rate: 1, voice: '', focus: false, notes: false, continuous: true }, ui.reader || {});
+    const R = reader = { idx: E.cur, P, items: [], cur: -1, speaking: false, paused: false, utter: null };
+    const synth = window.speechSynthesis;
+    const save = () => { ui.reader = { theme: P.theme, size: P.size, rate: P.rate, voice: P.voice, focus: P.focus, notes: P.notes, continuous: P.continuous }; saveUi(); };
+    root.className = 'rd-' + P.theme; root.classList.toggle('rd-focus', P.focus);
+    root.innerHTML = '<div class="rd-top"><button class="rd-btn" data-rd="close" aria-label="Close reader">✕ Close</button><button class="rd-btn" data-rd="prev" aria-label="Previous slide">◀</button><span id="rdCount"></span><button class="rd-btn" data-rd="next" aria-label="Next slide">▶</button><span class="rd-gap"></span>' +
+      '<button class="rd-btn rd-play" data-rd="play">▶ Play</button><label>Speed <input type="range" id="rdRate" min="0.5" max="2" step="0.1"></label><select id="rdVoice" aria-label="Voice"></select><span class="rd-gap"></span>' +
+      '<button class="rd-btn" data-rd="smaller" aria-label="Smaller text">A−</button><button class="rd-btn" data-rd="bigger" aria-label="Larger text">A+</button>' +
+      '<button class="rd-btn" data-rd="theme-light">White</button><button class="rd-btn" data-rd="theme-sepia">Sepia</button><button class="rd-btn" data-rd="theme-dark">Dark</button>' +
+      '<button class="rd-btn" data-rd="focus" aria-pressed="false">Line focus</button><button class="rd-btn" data-rd="notes" aria-pressed="false">Notes</button></div><div class="rd-body" id="rdBody"></div>';
+    const body = $('rdBody');
+    const voices = () => (synth && synth.getVoices ? synth.getVoices() : []);
+    const fillVoices = () => { const sel = $('rdVoice'); sel.innerHTML = '<option value="">Default voice</option>' + voices().map((v) => '<option value="' + esc(v.name) + '"' + (v.name === P.voice ? ' selected' : '') + '>' + esc(v.name) + '</option>').join(''); };
+    function syncControls() {
+      $('rdCount').textContent = 'Slide ' + (R.idx + 1) + ' of ' + E.pres.slides.length; $('rdRate').value = P.rate;
+      root.className = 'rd-' + P.theme; root.classList.toggle('rd-focus', P.focus); body.style.fontSize = P.size + 'px';
+      root.querySelector('[data-rd="focus"]').setAttribute('aria-pressed', String(P.focus)); root.querySelector('[data-rd="notes"]').setAttribute('aria-pressed', String(P.notes));
+      const pb = root.querySelector('.rd-play'); pb.textContent = R.speaking && !R.paused ? '❚❚ Pause' : '▶ Play';
+    }
+    function render() {
+      R.items = Q.readerText(E.pres.slides[R.idx], P.notes); R.cur = -1; body.textContent = '';
+      if (!R.items.length) { body.innerHTML = '<p class="rd-empty" id="rdEmpty">This slide has no text to read.</p>'; }
+      R.items.forEach((it, k) => {
+        const d = el('div', 'rd-item rd-' + it.kind); d.dataset.k = k;
+        if (it.kind === 'bullet') d.dataset.mark = '•'; else if (it.kind === 'number') d.dataset.mark = it.n + '.';
+        let last = 0; String(it.text).replace(/\S+/g, (w, at) => { if (at > last) d.appendChild(document.createTextNode(it.text.slice(last, at))); const s = el('span', 'rd-w'); s.dataset.at = at; s.textContent = w; d.appendChild(s); last = at + w.length; return w; });
+        body.appendChild(d);
+      });
+      syncControls();
+    }
+    function mark(k) { R.cur = k; body.querySelectorAll('.rd-item').forEach((n) => n.classList.toggle('cur', Number(n.dataset.k) === k)); body.querySelectorAll('.rd-w.on').forEach((n) => n.classList.remove('on')); }
+    function stopSpeech() { R.speaking = false; R.paused = false; if (synth) { try { synth.cancel(); } catch (e) { /* ignore */ } } syncControls(); }
+    function speak(k) {
+      if (!synth || typeof SpeechSynthesisUtterance === 'undefined') { showDialog({ title: 'Read aloud', body: '<p>This browser has no speech synthesis. The text can still be read on screen.</p>' }); return; }
+      if (k >= R.items.length) { // slide finished
+        if (P.continuous && R.idx < E.pres.slides.length - 1) { R.idx++; render(); R.speaking = true; speak(0); } else { R.speaking = false; mark(-1); syncControls(); }
+        return;
+      }
+      R.speaking = true; R.paused = false; mark(k); syncControls();
+      const u = new SpeechSynthesisUtterance(R.items[k].text); R.utter = u; u.rate = P.rate;
+      const v = voices().find((x) => x.name === P.voice); if (v) u.voice = v;
+      u.onboundary = (ev) => { const ws = body.querySelectorAll('.rd-item.cur .rd-w'); let hit = null; ws.forEach((w) => { if (Number(w.dataset.at) <= ev.charIndex) hit = w; }); body.querySelectorAll('.rd-w.on').forEach((n) => n.classList.remove('on')); if (hit) hit.classList.add('on'); };
+      u.onend = () => { if (R.utter === u && R.speaking) speak(k + 1); };
+      u.onerror = () => { if (R.utter === u) { R.speaking = false; syncControls(); } };
+      synth.speak(u);
+    }
+    function go(d) { stopSpeech(); R.idx = Q.clamp(R.idx + d, 0, E.pres.slides.length - 1); render(); }
+    function close() {
+      stopSpeech(); document.removeEventListener('keydown', onKey, true); root.removeEventListener('click', onClick); root.removeEventListener('mouseover', onOver);
+      root.hidden = true; root.textContent = ''; reader = null; E.showActive = false; E.selectSlide(R.idx, true); save();
+    }
+    function onClick(ev) {
+      const it = ev.target.closest('.rd-item'); if (it && !ev.target.closest('[data-rd]')) { stopSpeech(); speak(Number(it.dataset.k)); return; }
+      const b = ev.target.closest('[data-rd]'); if (!b) return; const a = b.dataset.rd;
+      if (a === 'close') close(); else if (a === 'prev') go(-1); else if (a === 'next') go(1);
+      else if (a === 'play') { if (R.speaking && !R.paused) { R.paused = true; if (synth) synth.pause(); syncControls(); } else if (R.speaking && R.paused) { R.paused = false; if (synth) synth.resume(); syncControls(); } else speak(Math.max(0, R.cur)); }
+      else if (a === 'bigger') { P.size = Math.min(72, P.size + 4); syncControls(); save(); } else if (a === 'smaller') { P.size = Math.max(16, P.size - 4); syncControls(); save(); }
+      else if (a.indexOf('theme-') === 0) { P.theme = a.slice(6); syncControls(); save(); }
+      else if (a === 'focus') { P.focus = !P.focus; syncControls(); save(); } else if (a === 'notes') { P.notes = !P.notes; stopSpeech(); render(); save(); }
+    }
+    function onOver(ev) { if (!P.focus || R.speaking) return; const it = ev.target.closest('.rd-item'); if (it) mark(Number(it.dataset.k)); }
+    function onKey(ev) {
+      if (document.querySelector('.backdrop')) return; // a dialog is open: it handles the keys
+      if (ev.target.closest && ev.target.closest('select,input')) { if (ev.key === 'Escape') close(); return; }
+      if (ev.key === 'Escape') close(); else if (ev.key === 'ArrowRight' || ev.key === 'PageDown') go(1); else if (ev.key === 'ArrowLeft' || ev.key === 'PageUp') go(-1);
+      else if (ev.key === ' ') root.querySelector('.rd-play').click(); else return;
+      ev.preventDefault(); ev.stopPropagation();
+    }
+    root.addEventListener('click', onClick); root.addEventListener('mouseover', onOver); document.addEventListener('keydown', onKey, true);
+    $('rdRate').addEventListener('input', (ev) => { P.rate = Number(ev.target.value); save(); });
+    $('rdVoice').addEventListener('change', (ev) => { P.voice = ev.target.value; save(); });
+    if (synth && synth.addEventListener) synth.addEventListener('voiceschanged', fillVoices);
+    fillVoices(); render();
+  }
+  QUI.startReader = startReader; QUI.readerState = () => (reader ? { idx: reader.idx, cur: reader.cur, speaking: reader.speaking, paused: reader.paused, items: reader.items.length } : null);
+
+  // ================= Help, support, feedback, shortcuts =================
+  const HELP = [
+    ['Getting started', 'Click a slide in the left panel, then click a placeholder or pick Insert → Text Box. Your work is saved automatically in this browser. Use File → Create a copy to keep a file.'],
+    ['Slides and layouts', 'Home → Slides or Ctrl+M adds a slide. Drag thumbnails to reorder, right-click for duplicate, delete, hide and layout. Design → Slide Layout changes the layout; Design → Slide Size switches between 16:9 and 4:3.'],
+    ['Shapes and text', 'Insert → Shapes adds rectangles, ovals, arrows and more. Drag to move, use the round handles to resize and rotate. Double-click or just start typing to edit text. Home → Drawing has fill, outline, align and arrange.'],
+    ['Pictures, icons and media', 'Insert → Pictures, Stock Images and Icons add pictures; you can also drop or paste an image onto the slide. Video and audio can come from a file (up to 3 MB) or a web address. Cameo takes a photo with your camera.'],
+    ['Tables and charts', 'Insert → Table, then double-click a cell and use Tab to move. Right-click a table for rows and columns. Insert → Chart makes column, line or pie charts; double-click a chart to edit its data.'],
+    ['Animations', 'Select a shape and pick an effect on the Animations tab. Add Animation lets one shape have several effects. Animation Pane lists them in order; Start decides On Click, With Previous or After Previous.'],
+    ['Transitions', 'Pick a transition on the Transitions tab, set Duration and Options, and use Apply to All. "After" advances the slide automatically; Slide Show → Use Timings turns that on or off.'],
+    ['Slide show and presenter view', 'F5 starts from the beginning, Shift+F5 from the current slide. Presenter View shows notes, the next slide and a timer; Audience window shows the slides in a second window. Custom Slideshow plays only the slides you choose.'],
+    ['Rehearse with Coach', 'Slide Show → Rehearse with Coach times every slide and, in Chrome or Edge with a microphone, measures speaking pace and filler words. Save timings stores the slide times.'],
+    ['Review: spelling, accessibility, comments', 'Review → Proofing → Spelling checks every slide, table and note. Check Accessibility lists missing titles, alt text, small text and low contrast. Comments support replies, Resolve and unread tracking. Show Changes compares with a saved version.'],
+    ['View: ruler, grid, immersive reader', 'View → Ruler, Gridlines and Snap to Grid help with alignment; Units switches inches and centimetres. Immersive Reader shows large text and can read the slide aloud with the browser voice.'],
+    ['Export, print and share', 'File → Export gives PDF (through the print dialog), PNG pictures of every slide, JSON and a text outline. File → Share can email an outline or use your device share sheet.'],
+    ['Files, folders and versions', 'File → New keeps your old presentation in My presentations. Move file puts it in a folder. Version history keeps up to 8 earlier versions that you can restore.'],
+  ];
+  function helpDialog() {
+    const body = el('div'); body.innerHTML = '<input type="text" id="helpSearch" placeholder="Search help" aria-label="Search help" style="width:100%;height:32px;border:1px solid var(--muted);border-radius:4px;background:var(--panel);color:var(--text);padding:0 8px;margin-bottom:8px"><div style="display:grid;grid-template-columns:230px 1fr;gap:12px"><div id="helpList" style="max-height:340px;overflow:auto"></div><div id="helpArticle" style="max-height:340px;overflow:auto"></div></div>';
+    const list = body.querySelector('#helpList'), art = body.querySelector('#helpArticle');
+    const show = (k) => { art.innerHTML = '<h3 style="margin-top:0">' + esc(HELP[k][0]) + '</h3><p>' + esc(HELP[k][1]) + '</p>'; list.querySelectorAll('button').forEach((b) => b.classList.toggle('active', Number(b.dataset.help) === k)); };
+    const draw = () => {
+      const q = body.querySelector('#helpSearch').value.trim().toLowerCase();
+      const hits = HELP.map((h, k) => k).filter((k) => !q || (HELP[k][0] + ' ' + HELP[k][1]).toLowerCase().indexOf(q) >= 0);
+      list.innerHTML = hits.length ? hits.map((k) => '<button class="mi" data-help="' + k + '" style="display:block;width:100%;text-align:left;padding:6px 8px;border-radius:4px">' + esc(HELP[k][0]) + '</button>').join('') : '<p id="helpNone" style="color:var(--muted)">No articles match.</p>';
+      if (hits.length) show(hits[0]); else art.innerHTML = '';
+    };
+    body.querySelector('#helpSearch').addEventListener('input', draw); list.addEventListener('click', (ev) => { const b = ev.target.closest('[data-help]'); if (b) show(Number(b.dataset.help)); });
+    draw(); showDialog({ title: 'Help', wide: true, body, buttons: [{ label: 'Contact Support', run: () => { setTimeout(supportDialog, 0); } }, { label: 'Close', primary: true }] });
+  }
+  function diagnostics() {
+    let used = 0; try { Object.keys(localStorage).filter((k) => k.indexOf('quadra-ppt:') === 0).forEach((k) => { used += (localStorage.getItem(k) || '').length; }); } catch (e) { /* ignore */ }
+    return ['Quadra PowerPoint ' + CONFIG.version, 'Browser: ' + navigator.userAgent, 'Language: ' + navigator.language, 'Screen: ' + screen.width + 'x' + screen.height + ' @' + (window.devicePixelRatio || 1) + 'x', 'Slides: ' + E.pres.slides.length + ' (' + E.pres.size + ')', 'Theme: ' + document.documentElement.dataset.theme, 'Stored data: ' + Math.round(used / 1024) + ' KB', 'Online: ' + navigator.onLine].join('\n');
+  }
+  QUI.diagnostics = diagnostics;
+  function supportText(d) {
+    const g = (id) => d.querySelector('#' + id);
+    return 'Category: ' + g('supCat').value + '\nFrom: ' + (g('supName').value.trim() || getAuthor()) + (g('supMail').value.trim() ? ' <' + g('supMail').value.trim() + '>' : '') + '\nSubject: ' + g('supSubj').value.trim() + '\n\n' + g('supMsg').value.trim() + (g('supDiag').checked ? '\n\n--- Diagnostic information ---\n' + diagnostics() : '');
+  }
+  function supportDialog() {
+    const dlg = showDialog({ title: 'Contact Support', wide: true, body: '<label class="row">Your name <input type="text" id="supName"></label><label class="row">Email (optional) <input type="text" id="supMail" placeholder="you@example.com"></label><label class="row">Category <select id="supCat"><option>Problem</option><option>Question</option><option>Feature request</option><option>Other</option></select></label><label class="row">Subject <input type="text" id="supSubj" maxlength="100"></label><label class="row" style="align-items:flex-start">Details <textarea id="supMsg" rows="5" style="flex:1;border:1px solid var(--muted);border-radius:4px;background:var(--panel);color:var(--text);padding:6px;font:inherit"></textarea></label><label class="row"><input type="checkbox" id="supDiag" checked> Include diagnostic information</label><p id="supErr" style="color:var(--ic-red)"></p><p style="color:var(--muted)">Nothing is sent automatically. Use Send email (opens your mail app) or copy / download the report.</p>',
+      buttons: [{ label: 'Cancel' },
+        { label: 'Copy', act: 'supCopy', run: (d) => { if (!valid(d)) return false; copyText(supportText(d)).then(() => toast('Report copied')); return false; } },
+        { label: 'Download', act: 'supDownload', run: (d) => { if (!valid(d)) return false; const u = URL.createObjectURL(new Blob([supportText(d)], { type: 'text/plain' })); download(u, 'quadra-support-request.txt'); setTimeout(() => URL.revokeObjectURL(u), 2000); return false; } },
+        { label: 'Send email', primary: true, act: 'supSend', run: (d) => { if (!valid(d)) return false; const a = el('a'); a.href = 'mailto:' + encodeURIComponent(CONFIG.supportEmail).replace(/%40/g, '@') + '?subject=' + encodeURIComponent('[Quadra PowerPoint] ' + d.querySelector('#supSubj').value.trim()) + '&body=' + encodeURIComponent(supportText(d)); QUI.lastMailto = a.href; document.body.appendChild(a); a.click(); a.remove(); } }] });
+    function valid(d) { if (!d.querySelector('#supSubj').value.trim() || !d.querySelector('#supMsg').value.trim()) { d.querySelector('#supErr').textContent = 'Please enter a subject and some details.'; return false; } d.querySelector('#supErr').textContent = ''; return true; }
+    dlg.el.querySelector('#supName').value = getAuthor();
+  }
+  const FB_KEY = 'quadra-ppt:feedback';
+  const fbList = () => { try { const l = JSON.parse(localStorage.getItem(FB_KEY)); return Array.isArray(l) ? l : []; } catch (e) { return []; } };
+  function feedbackDialog() {
+    let rating = 0;
+    const dlg = showDialog({ title: 'Give Feedback', wide: true, body: '<p>How is Quadra PowerPoint working for you?</p><div id="fbStars" role="radiogroup" aria-label="Rating" style="display:flex;gap:6px;margin-bottom:8px">' + [1, 2, 3, 4, 5].map((n) => '<button class="btn" data-rate="' + n + '" role="radio" aria-checked="false" aria-label="' + n + ' star' + (n > 1 ? 's' : '') + '" style="min-width:44px;font-size:20px;padding:0">☆</button>').join('') + '</div><label class="row">Type <select id="fbCat"><option>Something I like</option><option>Something I dislike</option><option>An idea</option><option>A problem</option></select></label><label class="row" style="align-items:flex-start">Message <textarea id="fbMsg" rows="5" style="flex:1;border:1px solid var(--muted);border-radius:4px;background:var(--panel);color:var(--text);padding:6px;font:inherit"></textarea></label><label class="row"><input type="checkbox" id="fbDiag"> Include diagnostic information when emailing</label><p id="fbErr" style="color:var(--ic-red)"></p>',
+      buttons: [{ label: 'My feedback (' + fbList().length + ')', act: 'fbHistory', run: () => { setTimeout(feedbackHistory, 0); } }, { label: 'Cancel' },
+        { label: 'Save and email', act: 'fbEmail', run: (d) => submit(d, true) }, { label: 'Save', primary: true, act: 'fbSubmit', run: (d) => submit(d, false) }] });
+    dlg.el.querySelector('#fbStars').addEventListener('click', (ev) => { const b = ev.target.closest('[data-rate]'); if (!b) return; rating = Number(b.dataset.rate); dlg.el.querySelectorAll('[data-rate]').forEach((x) => { const on = Number(x.dataset.rate) <= rating; x.textContent = on ? '★' : '☆'; x.setAttribute('aria-checked', String(Number(x.dataset.rate) === rating)); }); });
+    function submit(d, mail) {
+      const msg = d.querySelector('#fbMsg').value.trim(); if (!rating && !msg) { d.querySelector('#fbErr').textContent = 'Choose a rating or write a message.'; return false; }
+      const item = { t: Date.now(), rating, category: d.querySelector('#fbCat').value, text: msg }; const l = fbList(); l.unshift(item);
+      try { localStorage.setItem(FB_KEY, JSON.stringify(l.slice(0, 50))); } catch (e) { /* ignore */ }
+      if (mail) { const a = el('a'); a.href = 'mailto:' + encodeURIComponent(CONFIG.supportEmail).replace(/%40/g, '@') + '?subject=' + encodeURIComponent('[Quadra PowerPoint feedback] ' + item.rating + '/5') + '&body=' + encodeURIComponent(item.category + '\n' + item.rating + '/5\n\n' + msg + (d.querySelector('#fbDiag').checked ? '\n\n' + diagnostics() : '')); QUI.lastMailto = a.href; document.body.appendChild(a); a.click(); a.remove(); }
+      toast('Thank you for your feedback');
+    }
+  }
+  function feedbackHistory() {
+    const body = el('div');
+    const draw = () => { const l = fbList(); body.innerHTML = l.length ? '<table class="kbd-table" id="fbTable">' + l.map((f, k) => '<tr><td>' + esc(new Date(f.t).toLocaleDateString()) + '</td><td>' + (f.rating ? '★'.repeat(f.rating) : '') + ' ' + esc(f.category) + '<br>' + esc(f.text) + '</td><td><button class="btn" data-fbdel="' + k + '">Delete</button></td></tr>').join('') + '</table>' : '<p id="fbEmpty">You have not saved any feedback yet.</p>'; };
+    draw(); body.addEventListener('click', (ev) => { const b = ev.target.closest('[data-fbdel]'); if (!b) return; const l = fbList(); l.splice(Number(b.dataset.fbdel), 1); try { localStorage.setItem(FB_KEY, JSON.stringify(l)); } catch (e) { /* ignore */ } draw(); });
+    showDialog({ title: 'My feedback', wide: true, body, buttons: [{ label: 'Close', primary: true }] });
+  }
+  const SHORTCUT_GROUPS = [
+    ['Slides', [['Ctrl+M', 'New slide'], ['Ctrl+D', 'Duplicate the slide (thumbnails focused) or the shape'], ['Ctrl+C / X / V', 'Copy, cut, paste slides (thumbnails focused) or shapes'], ['Delete', 'Delete the slide (thumbnails focused) or the shape'], ['Page Up / Page Down', 'Previous / next slide'], ['Ctrl+Mouse wheel', 'Zoom']]],
+    ['Shapes and text', [['Arrow keys', 'Nudge by 5 (Shift: 1)'], ['Shift+click', 'Add or remove from the selection'], ['Ctrl+A', 'Select all shapes'], ['Enter / F2 / double-click', 'Edit text'], ['Typing', 'Starts editing the selected shape'], ['Tab', 'Next table cell (adds a row at the end)'], ['Ctrl+B / I / U', 'Bold, italic, underline'], ['Esc', 'Leave editing, then clear selection']]],
+    ['General', [['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+S', 'Save now (autosave is always on)'], ['Ctrl+V', 'Paste a picture from the clipboard']]],
+    ['Slide show', [['F5', 'From the beginning'], ['Shift+F5', 'From the current slide'], ['Space / → / ↓ / Enter', 'Next'], ['← / ↑ / Backspace', 'Previous'], ['Home / End', 'First / last slide'], ['Esc', 'Exit']]],
+  ];
+  function shortcutsDialog() {
+    const body = el('div'); body.innerHTML = '<input type="text" id="kbSearch" placeholder="Search shortcuts" aria-label="Search shortcuts" style="width:100%;height:32px;border:1px solid var(--muted);border-radius:4px;background:var(--panel);color:var(--text);padding:0 8px;margin-bottom:8px"><div id="kbList" style="max-height:360px;overflow:auto"></div>';
+    const draw = () => {
+      const q = body.querySelector('#kbSearch').value.trim().toLowerCase();
+      const html = SHORTCUT_GROUPS.map((g) => { const rows = g[1].filter((r) => !q || (r[0] + ' ' + r[1]).toLowerCase().indexOf(q) >= 0); return rows.length ? '<h3 style="margin:10px 0 2px;font-size:14px">' + g[0] + '</h3><table class="kbd-table">' + rows.map((r) => '<tr><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>').join('') + '</table>' : ''; }).join('');
+      body.querySelector('#kbList').innerHTML = html || '<p id="kbNone" style="color:var(--muted)">No shortcuts match.</p>';
+    };
+    body.querySelector('#kbSearch').addEventListener('input', draw); draw();
+    showDialog({ title: 'Keyboard shortcuts', wide: true, body });
+  }
+  function whatsNewDialog() {
+    showDialog({ title: 'What’s new', wide: true, body: '<h3 style="margin:0">Version 4</h3><ul><li>Review: spelling check with custom dictionary, Review Presentation, Show Changes, comment replies / resolve / unread</li><li>View: real ruler (inches or cm), gridlines, snap to grid, Immersive Reader with read-aloud</li><li>Help: searchable help, Contact Support and Feedback forms, searchable shortcuts</li><li>More shapes, align and distribute, line spacing, hide slide, slide copy / paste, drop or paste pictures</li></ul><h3 style="margin:8px 0 0">Version 3</h3><ul><li>Animations, Slide Show and Transitions tabs: 17 effects, Presenter View, custom shows, rehearsal, real transitions</li></ul><h3 style="margin:8px 0 0">Version 2</h3><ul><li>Tables, charts, SmartArt, media, links, comments, add-ins, versions and folders</li></ul><h3 style="margin:8px 0 0">Version 1</h3><ul><li>Editor, ribbon, slide show, autosave, PDF and PNG export</li></ul>' });
   }
 
   // ================= commands =================
@@ -1166,7 +1445,7 @@
   const na = (name) => ({ run: () => notAvailable(name) });
   const dis = () => ({ disabled: true, run: () => {} });
   const layoutItems = (fn) => Q.LAYOUTS.map((l) => ({ label: l.name, check: E.slide().layout === l.id ? undefined : false, run: () => fn(l.id) }));
-  const SHAPE_ITEMS = [['rect', 'Rectangle'], ['oval', 'Oval'], ['line', 'Line'], ['arrow', 'Arrow']];
+  const SHAPE_ITEMS = Q.SHAPE_KINDS.map((k) => [k, Q.SHAPE_NAMES[k]]).concat([['line', 'Line'], ['arrow', 'Arrow']]);
   const shapeMenu = () => SHAPE_ITEMS.map((s) => ({ label: s[1], icon: s[0], id: 'shape-' + s[0], run: () => E.addShape(s[0]) }));
   const setOutline = (patch) => E.mutate(() => E.selShapes().forEach((s) => { if (['picture'].indexOf(s.type) >= 0) return; s.line = Object.assign({ color: '#000000', width: 2, alpha: 1 }, s.line || {}, patch); }));
   const setFill = (c) => E.mutate(() => E.selShapes().forEach((s) => { if (Q.canHoldText(s)) s.fill = c; }));
@@ -1177,7 +1456,7 @@
   def('cut', { run: () => E.cut(), enabled: hasSel });
   def('copy', { run: () => E.copy(), enabled: hasSel });
   def('painter', { run: () => E.startPainter(), enabled: () => E.sel.length === 1 && hasText(), pressed: () => E.painterActive() });
-  def('delete', { run: () => E.deleteSel(), enabled: hasSel });
+  def('delete', { run: () => { if (E.focusArea === 'thumbs') E.deleteSlide(); else E.deleteSel(); }, enabled: () => E.focusArea === 'thumbs' || hasSel() });
   def('slides', { run: (b) => openMenu(b, [
     { label: 'New Slide', icon: 'newslide', key: 'Ctrl+M', run: () => E.newSlide() },
     { label: 'Duplicate Slide', icon: 'f-copy', run: () => E.duplicateSlide() },
@@ -1194,12 +1473,14 @@
   def('shrink', { run: () => E.stepFont(-1), enabled: hasText });
   def('clearfmt', { run: () => E.clearFormat(), enabled: hasText });
   def('paragraph', { run: (b) => {
-    const t = style() || {}; const off = !hasText();
+    const t = style() || {}, off = !hasText(), first = E.textShapes()[0], anchor = first ? first.anchor : 'top';
+    const setAnchor = (a) => () => E.mutate(() => E.textShapes().forEach((s) => { s.anchor = a; }));
     openMenu(b, [
       { label: 'Bullets', disabled: off, check: t.list === 'bullet' ? undefined : false, run: () => E.setStyle({ list: t.list === 'bullet' ? 'none' : 'bullet' }) },
       { label: 'Numbering', disabled: off, check: t.list === 'number' ? undefined : false, run: () => E.setStyle({ list: t.list === 'number' ? 'none' : 'number' }) }, { sep: true },
-      ['left', 'Align Left'], ['center', 'Center'], ['right', 'Align Right'], ['justify', 'Justify'],
-    ].map((x) => (Array.isArray(x) ? { label: x[1], disabled: off, check: t.align === x[0] ? undefined : false, run: () => E.setStyle({ align: x[0] }) } : x)));
+    ].concat([['left', 'Align Left'], ['center', 'Center'], ['right', 'Align Right'], ['justify', 'Justify']].map((x) => ({ label: x[1], disabled: off, check: t.align === x[0] ? undefined : false, run: () => E.setStyle({ align: x[0] }) })),
+      [{ sep: true }, { label: 'Line Spacing', disabled: off, submenu: [1, 1.15, 1.5, 2].map((v) => ({ label: String(v), id: 'ls-' + v, check: Math.abs((t.lineHeight || 1.2) - v) < 0.01 ? undefined : false, run: () => E.setStyle({ lineHeight: v }) })) },
+        { label: 'Vertical Alignment', disabled: off, submenu: [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']].map((x) => ({ label: x[1], id: 'va-' + x[0], check: anchor === x[0] ? undefined : false, run: setAnchor(x[0]) })) }]));
   } });
   def('drawing', { run: (b) => openMenu(b, [
     { label: 'Shapes', icon: 'shapes', submenu: shapeMenu() },
@@ -1208,7 +1489,9 @@
     { label: 'Outline Weight', submenu: [1, 2, 4, 6, 8].map((w) => ({ label: w + ' px', run: () => setOutline({ width: w }) })), disabled: !hasSel() }, { sep: true },
     { label: 'Bring to Front', run: () => E.order('front'), disabled: !hasSel() }, { label: 'Send to Back', run: () => E.order('back'), disabled: !hasSel() },
     { label: 'Bring Forward', run: () => E.order('forward'), disabled: !hasSel() }, { label: 'Send Backward', run: () => E.order('backward'), disabled: !hasSel() }, { sep: true },
-    { label: 'Rotate Right 90°', run: () => E.rotateBy(90), disabled: !hasSel() }, { label: 'Rotate Left 90°', run: () => E.rotateBy(-90), disabled: !hasSel() },
+    { label: 'Rotate Right 90°', run: () => E.rotateBy(90), disabled: !hasSel() }, { label: 'Rotate Left 90°', run: () => E.rotateBy(-90), disabled: !hasSel() }, { sep: true },
+    { label: 'Align', disabled: !hasSel(), submenu: [['left', 'Align Left'], ['center', 'Align Center'], ['right', 'Align Right'], ['top', 'Align Top'], ['middle', 'Align Middle'], ['bottom', 'Align Bottom']].map((x) => ({ label: x[1], id: 'al-' + x[0], run: () => E.align(x[0]) })) },
+    { label: 'Distribute', disabled: E.sel.length < 3, submenu: [['h', 'Distribute Horizontally'], ['v', 'Distribute Vertically']].map((x) => ({ label: x[1], id: 'ds-' + x[0], run: () => E.distribute(x[0]) })) },
   ]) });
   def('find', { run: () => findDialog(false) });
   def('replace', { run: () => findDialog(true) });
@@ -1298,24 +1581,28 @@
   def('coach', { run: (b, ev) => { if (ev && ev.target.closest && ev.target.closest('.dd')) coachMenu(b); else startShow(0, { rehearse: true }); } });
   def('useTimings', { run: () => E.mutate(() => E.pres.setShowOptions({ useTimings: !E.pres.show.useTimings }), 'meta'), pressed: () => E.pres.show.useTimings });
   def('loopShow', { run: () => E.mutate(() => E.pres.setShowOptions({ loop: !E.pres.show.loop }), 'meta'), pressed: () => E.pres.show.loop });
-  def('review', dis()); def('proofing', na('Proofing')); def('access', { run: accessibilityDialog });
-  def('markread', dis()); def('changes', dis());
+  def('review', { run: reviewDialog }); def('proofing', { run: (b) => proofingMenu(b) }); def('access', { run: accessibilityDialog });
+  def('markread', { enabled: () => E.pres.unreadCount(getAuthor()) > 0, run: () => { E.mutate(() => E.pres.markAllRead(getAuthor()), 'meta'); E.renderCanvas(); } }); def('changes', { run: changesDialog });
   const anyComments = () => E.pres.allComments().length > 0;
   def('delcomment', { enabled: anyComments, run: (b) => openMenu(b, [
     { label: 'Delete Comment', id: 'cm-del-one', run: () => { const all = E.pres.allComments(); const it = all[Math.max(0, Math.min(cmCursor, all.length - 1))] || all[0]; E.mutate(() => E.pres.removeComment(it.slide, it.comment.id), 'meta'); E.renderCanvas(); cmCursor = -1; } },
     { label: 'Delete All Comments on this Slide', id: 'cm-del-slide', run: () => { E.mutate(() => { E.slide().comments = []; }, 'meta'); E.renderCanvas(); } },
     { label: 'Delete All Comments', id: 'cm-del-all', run: () => { E.mutate(() => { E.pres.slides.forEach((s) => { s.comments = []; }); }, 'meta'); E.renderCanvas(); } }]) });
-  def('prevcomment', { enabled: anyComments, run: () => viewComment((cmCursor < 0 ? 0 : cmCursor) - 1) });
-  def('nextcomment', { enabled: anyComments, run: () => viewComment(cmCursor + 1) });
+  def('prevcomment', { enabled: anyComments, run: () => commentView((cmCursor < 0 ? 0 : cmCursor) - 1) });
+  def('nextcomment', { enabled: anyComments, run: () => commentView(cmCursor + 1) });
   def('showcomments', { run: (b) => openMenu(b, [{ label: 'Show comment markers', id: 'cm-markers', check: E.showComments !== false ? undefined : false, run: () => { E.showComments = E.showComments === false; E.renderCanvas(); } }, { label: 'Comments pane…', id: 'cm-pane', run: commentsPane }]) });
   const setNotesPane = (on) => { ui.notes = on; saveUi(); applyUi(); };
   def('notes', { run: () => setNotesPane(!ui.notes), pressed: () => ui.notes });
   def('ruler', { run: () => { ui.ruler = !ui.ruler; saveUi(); applyUi(); }, pressed: () => ui.ruler });
   def('sorter', { run: () => E.setView('sorter'), pressed: () => E.view === 'sorter' });
   def('normal', { run: () => E.setView('normal'), pressed: () => E.view === 'normal' });
-  def('immersive', dis());
+  def('immersive', { run: startReader });
+  def('gridlines', { run: () => { ui.grid = !ui.grid; saveUi(); applyUi(); }, pressed: () => ui.grid });
+  def('snap', { run: () => { ui.snap = !ui.snap; saveUi(); applyUi(); }, pressed: () => ui.snap });
+  def('units', { run: (b) => openMenu(b, [['in', 'Inches'], ['cm', 'Centimetres']].map((x) => ({ label: x[1], id: 'unit-' + x[0], check: ui.units === x[0] ? undefined : false, run: () => { ui.units = x[0]; saveUi(); applyUi(); } }))) });
+  def('hideSlide', { run: () => E.mutate(() => E.pres.setHidden(E.cur, !E.slide().hidden), 'meta'), pressed: () => !!E.slide().hidden });
   def('zoom', { run: zoomDialog }); def('fit', { run: () => E.setZoom('fit', 1) });
-  def('help', { run: helpDialog }); def('support', na('Contact Support')); def('feedback', na('Feedback')); def('keyboard', { run: shortcutsDialog }); def('whatsnew', { run: whatsNewDialog });
+  def('help', { run: helpDialog }); def('support', { run: supportDialog }); def('feedback', { run: feedbackDialog }); def('keyboard', { run: shortcutsDialog }); def('whatsnew', { run: whatsNewDialog });
 
   // ================= ribbon layout =================
   const B = (c, i, l, o) => Object.assign({ t: 'big', c, i, l }, o);
@@ -1375,7 +1662,7 @@
     ],
     'Slide Show': [
       { l: 'Start Slide Show', items: [B('fromStart', 'fromstart', 'From Beginning'), B('fromCurrent', 'fromcurrent', 'From Current Slide'), B('presenter', 'presenter', 'Presenter View'), B('custom', 'custom', 'Custom Slideshow', { dd: true })] },
-      { l: 'Set Up', items: [col(S('useTimings', 'clock', 'Use Timings'), S('loopShow', 'loop', 'Loop Continuously'))] },
+      { l: 'Set Up', items: [col(S('useTimings', 'clock', 'Use Timings'), S('loopShow', 'loop', 'Loop Continuously'), S('hideSlide', 'hide', 'Hide Slide'))] },
       { l: 'Coach', items: [B('coach', 'coach', 'Rehearse with Coach', { dd: true })] },
     ],
     Review: [
@@ -1386,7 +1673,7 @@
       { l: 'Comments', items: [B('newcomment', 'newcomment', 'New Comment'), B('delcomment', 'delcomment', 'Delete', { dd: true }), B('prevcomment', 'prevcomment', 'Previous'), B('nextcomment', 'nextcomment', 'Next'), B('showcomments', 'showcomments', 'Show Comments', { dd: true })] },
     ],
     View: [
-      { l: 'Show', items: [B('notes', 'notes', 'Notes'), B('ruler', 'ruler', 'Ruler')] },
+      { l: 'Show', items: [B('notes', 'notes', 'Notes'), B('ruler', 'ruler', 'Ruler'), col(S('gridlines', 'grid', 'Gridlines'), S('snap', 'snap', 'Snap to Grid'), S('units', 'ruler', 'Units', { dd: true }))] },
       { l: 'Presentation Views', items: [B('sorter', 'sorter', 'Slide Sorter'), B('normal', 'normal', 'Normal'), B('immersive', 'immersive', 'Immersive Reader')] },
       { l: 'Zoom', items: [B('zoom', 'zoom', 'Zoom'), B('fit', 'fit', 'Fit To Window')] },
     ],
@@ -1554,7 +1841,7 @@
     { label: 'Keyboard shortcuts', icon: 'keyboard', run: shortcutsDialog }, { sep: true }, { label: 'About', icon: 'f-info', run: aboutDialog },
   ]));
   $('profileBtn').addEventListener('click', (ev) => openMenu(ev.currentTarget, [
-    { head: 'Quadra user (this device)', icon: 'logo' }, { label: 'Account settings', run: () => notAvailable('Account settings') }, { label: 'Sign out', run: () => notAvailable('Sign out') },
+    { head: getAuthor() + ' (this device)', icon: 'logo' }, { label: 'Change display name…', id: 'prof-name', icon: 'f-rename', run: nameDialog }, { label: 'Your feedback', id: 'prof-feedback', icon: 'feedback', run: feedbackHistory }, { sep: true }, { label: 'Clear local data…', id: 'prof-clear', icon: 'delete', run: clearLocalData },
   ]));
   $('shareBtn').addEventListener('click', (ev) => openMenu(ev.currentTarget, shareMenuItems()));
   $('commentsBtn').addEventListener('click', commentsPane);
@@ -1578,6 +1865,7 @@
   }
   function runSearch(item) {
     searchResults.hidden = true; searchInput.value = '';
+    if (item.slide != null) { E.selectSlide(item.slide); if (item.shapeId) E.select([item.shapeId]); return; }
     if (item.cmd === '_rename') return renameDialog(); if (item.cmd === '_print') return printDeck();
     const c = C[item.cmd]; if (!c) return;
     if (c.disabled || (c.enabled && !c.enabled())) { setTab(item.tab); toast(item.label + ' is not available right now'); return; }
@@ -1587,6 +1875,11 @@
     const q = searchInput.value.trim().toLowerCase(); searchResults.textContent = '';
     if (!q) { searchResults.hidden = true; return; }
     const hits = searchIndex.filter((s) => s.label.toLowerCase().indexOf(q) >= 0).slice(0, 8);
+    let nText = 0;
+    E.pres.slides.forEach((s, i) => s.shapes.forEach((x) => {
+      const t = x.type === 'table' ? x.cells.map((r) => r.join(' ')).join(' ') : x.text;
+      if (nText < 5 && t && t.toLowerCase().indexOf(q) >= 0) { nText++; const at = t.toLowerCase().indexOf(q); hits.push({ label: 'Slide ' + (i + 1) + ': ' + t.slice(Math.max(0, at - 12), at + 28).replace(/\n/g, ' '), tab: 'Slide text', slide: i, shapeId: x.id }); }
+    }));
     if (!hits.length) { searchResults.innerHTML = '<div class="sr-empty">No commands found</div>'; searchResults.hidden = false; return; }
     hits.forEach((h, k) => {
       const b = el('button', 'sr-item' + (k === 0 ? ' active' : '')); b.type = 'button'; b.innerHTML = '<span>' + esc(h.label) + '</span><span class="sr-tab">' + esc(h.tab) + '</span>';
@@ -1608,6 +1901,7 @@
     $('zoomFit').classList.toggle('pressed', E.zoom.mode === 'fit');
   }
   function applyUi() {
+    E.opts.grid = !!ui.grid; E.opts.snap = !!ui.snap; E.opts.units = ui.units === 'cm' ? 'cm' : 'in'; E.opts.rulers = !!ui.ruler;
     $('notesPane').hidden = !ui.notes;
     $('rulerTop').hidden = !ui.ruler; $('rulerLeft').hidden = !ui.ruler; document.body.classList.toggle('show-ruler', ui.ruler);
     document.body.classList.toggle('thumbs-collapsed', ui.thumbsCollapsed);
@@ -1629,7 +1923,7 @@
     openMenu(ev.currentTarget, items);
   });
   $('sbNotes').addEventListener('click', () => setNotesPane(!ui.notes));
-  $('sbFeedback').addEventListener('click', () => notAvailable('Feedback'));
+  $('sbFeedback').addEventListener('click', feedbackDialog);
   $('viewNormal').addEventListener('click', () => E.setView('normal'));
   $('viewSorter').addEventListener('click', () => E.setView('sorter'));
   $('viewShow').addEventListener('click', () => startShow(E.cur));
@@ -1644,6 +1938,8 @@
     openMenu(a, [
       { label: 'New Slide', icon: 'newslide', run: () => E.newSlide() }, { label: 'Duplicate Slide', icon: 'f-copy', run: () => E.duplicateSlide(i) },
       { label: 'Delete Slide', icon: 'delete', run: () => E.deleteSlide(i) }, { sep: true },
+      { label: 'Copy Slide', id: 'ts-copy', run: () => E.copySlide(i) }, { label: 'Cut Slide', id: 'ts-cut', run: () => E.cutSlide(i) }, { label: 'Paste Slide', id: 'ts-paste', disabled: !E.hasSlideClip(), run: () => E.pasteSlide() }, { sep: true },
+      { label: E.pres.slides[i].hidden ? 'Unhide Slide' : 'Hide Slide', id: 'ts-hide', icon: 'hide', run: () => E.mutate(() => E.pres.setHidden(i, !E.pres.slides[i].hidden), 'meta') },
       { label: 'Layout', icon: 'layout', submenu: layoutItems((l) => E.setLayout(l, i)) },
       { label: 'Slide Show from here', icon: 'fromcurrent', run: () => startShow(i) },
     ]);
@@ -1679,6 +1975,13 @@
   applyTheme(t0);
   E.init(saved ? saved.pres : Q.Presentation.blank());
   if (saved && saved.cur > 0) E.selectSlide(Math.min(saved.cur, E.pres.slides.length - 1), true);
+  document.addEventListener('keydown', (ev) => { if (E.showActive) return; if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveNow(); toast('Saved'); } });
+  document.addEventListener('paste', (ev) => {
+    if (E.showActive || (ev.target.closest && ev.target.closest('input,textarea,[contenteditable]'))) return;
+    const files = Array.from((ev.clipboardData && ev.clipboardData.files) || []).filter((f) => /^image\//.test(f.type)); if (files.length) { ev.preventDefault(); files.forEach(loadPicture); }
+  });
+  E.on('dropfiles', (files) => files.filter((f) => /^image\//.test(f.type)).forEach(loadPicture));
+  applyAuthor();
   buildSearchIndex(); renderTabs(); setTab(TABS[ui.tab] ? ui.tab : 'Home');
   syncTitle(); updateStatus(); updateZoomUi(); applyUi(); setStatus('saved');
   ['change', 'slide', 'selection', 'history', 'clipboard', 'tool', 'view', 'painter', 'edit'].forEach((ev) => E.on(ev, scheduleRefresh));
