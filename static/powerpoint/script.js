@@ -29,6 +29,7 @@
     const deco = []; if (t.underline) deco.push('underline'); if (t.strike) deco.push('line-through');
     tin.style.textDecoration = deco.join(' ') || 'none';
     tin.style.textAlign = t.align === 'justify' ? 'justify' : t.align;
+    tin.style.lineHeight = String(t.lineHeight || 1.2);
     tin.style.color = t.color || (sh.fill && !Q.isLineType(sh.type) ? Q.contrastColor(sh.fill) : tv.fg);
     tin.style.textTransform = t.caps === 'upper' ? 'uppercase' : t.caps === 'lower' ? 'lowercase' : t.caps === 'title' ? 'capitalize' : 'none';
   }
@@ -128,10 +129,16 @@
     if (o.hidden && o.hidden.has(sh.id)) { d.style.visibility = 'hidden'; d.dataset.hidden = '1'; }
     if (sh.link) { d.dataset.link = sh.link.type; d.dataset.linkTarget = sh.link.type === 'url' ? sh.link.url : String(sh.link.index); d.title = sh.link.type === 'url' ? sh.link.url : 'Go to slide ' + (sh.link.index + 1); }
 
-    if (sh.type === 'rect' || sh.type === 'oval' || sh.type === 'textbox') {
+    if (sh.type === 'rect' || sh.type === 'rrect' || sh.type === 'oval' || sh.type === 'textbox') {
       if (sh.fill) d.style.background = sh.fill;
       if (sh.line && sh.line.color && sh.line.width) d.style.border = sh.line.width + 'px solid ' + sh.line.color;
       if (sh.type === 'oval') d.style.borderRadius = '50%';
+      if (sh.type === 'rrect') d.style.borderRadius = Math.round(Math.min(sh.w, sh.h) * 0.18) + 'px';
+    } else if (Q.POLY[sh.type]) {
+      const svg = svgEl('svg', { viewBox: '0 0 100 100', preserveAspectRatio: 'none' });
+      const ln = sh.line && sh.line.color && sh.line.width ? sh.line : null;
+      svg.appendChild(svgEl('polygon', { points: Q.POLY[sh.type], fill: sh.fill || 'none', stroke: ln ? ln.color : 'none', 'stroke-width': ln ? ln.width : 0, 'stroke-linejoin': 'round', 'vector-effect': 'non-scaling-stroke' }));
+      d.appendChild(svg);
     } else if (isLine) {
       const lw = sh.line ? sh.line.width : 4, col = sh.line ? sh.line.color : '#000';
       const svg = svgEl('svg', { viewBox: '0 0 ' + sh.w + ' ' + hit, preserveAspectRatio: 'none' });
@@ -213,7 +220,8 @@
       const n = el('div', 'sl-ft sl-num', { bottom: '18px', right: '28px', left: 'auto', textAlign: 'right', color: tv.fg }); n.textContent = String(pres.slides.indexOf(slide) + 1); s.appendChild(n);
     }
     if (o.comments && slide.comments.length) {
-      const cm = el('div', 'sl-cm'); cm.textContent = String(slide.comments.length); cm.title = slide.comments.length + ' comment(s)'; s.appendChild(cm);
+      const open = slide.comments.filter((c) => !c.resolved).length, unread = slide.comments.some((c) => c.seenBy.indexOf(o.author || '') < 0);
+      const cm = el('div', 'sl-cm' + (open ? '' : ' done') + (unread ? ' unread' : '')); cm.textContent = open ? String(open) : '✓'; cm.title = slide.comments.length + ' comment(s)' + (unread ? ', unread' : ''); s.appendChild(cm);
     }
     return s;
   }
@@ -238,7 +246,7 @@
   const E = {
     pres: null, cur: 0, sel: [], editing: null, editCell: null, tool: 'select',
     pen: { color: '#111111', width: 3, alpha: 1 },
-    zoom: { mode: 'fit', value: 1 }, showActive: false, focusArea: 'canvas',
+    zoom: { mode: 'fit', value: 1 }, showActive: false, focusArea: 'canvas', opts: { grid: false, snap: false, units: 'in', rulers: false },
     renderSlide, applyTextStyle, ZOOM_STEPS,
   };
   window.QEditor = E;
@@ -338,7 +346,20 @@
   };
   E.setLayout = (layout, i) => { E.stopEdit(); E.mutate(() => E.pres.setLayout(i == null ? E.cur : i, layout), 'structure'); };
 
+  // ---- slide clipboard ----
+  let slideClip = null;
+  E.hasSlideClip = () => !!slideClip;
+  E.copySlide = (i) => { slideClip = Q.clone(E.pres.slides[i == null ? E.cur : i]); E.emit('clipboard'); return true; };
+  E.cutSlide = (i) => { E.copySlide(i); E.deleteSlide(i); };
+  E.pasteSlide = () => {
+    if (!slideClip) return false; E.stopEdit(); let at;
+    E.mutate(() => { at = E.pres.pasteSlide(E.cur, slideClip); E.cur = at; E.sel = []; }, 'structure');
+    E.fullRender(); E.emit('slide', at); return true;
+  };
+
   // ---- shape commands ----
+  E.align = (mode) => { if (E.sel.length) E.mutate(() => E.pres.alignShapes(E.cur, E.sel, mode)); };
+  E.distribute = (axis) => { if (E.sel.length > 2) E.mutate(() => E.pres.distributeShapes(E.cur, E.sel, axis)); };
   E.addShape = (type, props) => {
     E.stopEdit(); let sh;
     E.mutate(() => { sh = E.pres.addShape(E.cur, type, props); });
@@ -495,15 +516,47 @@
     stage.textContent = '';
     stage.style.width = Math.round(pres.W * z) + 'px'; stage.style.height = Math.round(pres.H * z) + 'px';
     stage.style.setProperty('--inv', String(1 / z));
-    const s = renderSlide(pres, E.slide(), { prompts: true, animBadges: true, comments: E.showComments !== false, selection: new Set(E.sel), editing: E.editing, editCell: E.editCell, handles: E.sel.length === 1 && !E.editing && E.tool === 'select' });
+    const s = renderSlide(pres, E.slide(), { prompts: true, animBadges: true, author: E.author ? E.author() : '', comments: E.showComments !== false, selection: new Set(E.sel), editing: E.editing, editCell: E.editCell, handles: E.sel.length === 1 && !E.editing && E.tool === 'select' });
     s.style.transform = 'scale(' + z + ')';
     stage.appendChild(s);
+    if (E.opts.grid) {
+      const st = E.gridStep() * z, gr = el('div', 'grid-ov');
+      gr.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:3;background-image:linear-gradient(to right,rgba(120,120,120,.38) 1px,transparent 1px),linear-gradient(to bottom,rgba(120,120,120,.38) 1px,transparent 1px);background-size:' + st + 'px ' + st + 'px';
+      stage.appendChild(gr);
+    }
     if (g && g.kind === 'marquee' && g.rect) {
       const m = el('div', 'marquee', { left: g.rect.x * z + 'px', top: g.rect.y * z + 'px', width: g.rect.w * z + 'px', height: g.rect.h * z + 'px' });
       m.style.borderWidth = '1px'; stage.appendChild(m);
     }
     rebuilding = false;
     if (E.editing) focusEdit(caret);
+    E.renderRulers();
+  };
+
+  E.gridStep = () => (E.opts.units === 'cm' ? 37.795 / 2 : 24);
+  // rulers aligned with the slide edges (zero at the left / top edge of the slide)
+  E.renderRulers = () => {
+    const top = document.getElementById('rulerTop'), left = document.getElementById('rulerLeft'), area = document.getElementById('stageArea');
+    if (!top || !E.opts.rulers || !stage || !E.pres) return;
+    const z = E.z(), ar = area.getBoundingClientRect(), sr = stage.getBoundingClientRect();
+    const major = E.opts.units === 'cm' ? 37.795 : 96, subs = E.opts.units === 'cm' ? [10, 5, 2, 1] : [8, 4, 2, 1];
+    const n = subs.find((x) => (major / x) * z >= 5) || 1;
+    const build = (origin, length, vertical, selRange) => {
+      const u0 = -origin / z, u1 = (length - origin) / z, step = major / n; let d = '', labels = '';
+      for (let k = Math.floor(u0 / step); k <= Math.ceil(u1 / step); k++) {
+        const p = origin + k * step * z; if (p < 0 || p > length) continue;
+        const isMajor = k % n === 0, isHalf = n % 2 === 0 && k % (n / 2) === 0, len = isMajor ? 12 : isHalf ? 8 : 5;
+        d += vertical ? 'M' + (18 - len) + ' ' + p.toFixed(1) + 'H18' : 'M' + p.toFixed(1) + ' ' + (18 - len) + 'V18';
+        if (isMajor && p + 2 < length) labels += vertical ? '<text x="2" y="' + (p + 11).toFixed(1) + '" transform="rotate(-90 2 ' + (p + 11).toFixed(1) + ')" data-v="' + (k / n) + '">' + (k / n) + '</text>' : '<text x="' + (p + 3).toFixed(1) + '" y="10" data-v="' + (k / n) + '">' + (k / n) + '</text>';
+      }
+      const band = selRange ? (vertical ? '<rect x="0" y="' + (origin + selRange[0] * z) + '" width="18" height="' + ((selRange[1] - selRange[0]) * z) + '" class="rsel"/>' : '<rect y="0" x="' + (origin + selRange[0] * z) + '" height="18" width="' + ((selRange[1] - selRange[0]) * z) + '" class="rsel"/>') : '';
+      const w = vertical ? 18 : length, h = vertical ? length : 18;
+      return '<svg width="' + w + '" height="' + h + '" style="width:' + w + 'px;height:' + h + 'px">' + band + '<path d="' + d + '" class="rtick"/>' + labels + '</svg>';
+    };
+    const sel = E.selShapes(); let sx = null, sy = null;
+    if (sel.length) { sx = [Math.min.apply(null, sel.map((s) => s.x)), Math.max.apply(null, sel.map((s) => s.x + s.w))]; sy = [Math.min.apply(null, sel.map((s) => s.y)), Math.max.apply(null, sel.map((s) => s.y + s.h))]; }
+    const ox = sr.left - ar.left - 18, oy = sr.top - ar.top - 18;
+    top.innerHTML = build(ox, Math.max(0, ar.width - 18), false, sx); left.innerHTML = build(oy, Math.max(0, ar.height - 18), true, sy);
   };
 
   function buildThumb(i, width, big) {
@@ -511,11 +564,13 @@
     const item = el('div', 'thumb-item' + (i === E.cur ? ' active' : ''));
     item.dataset.index = i; item.draggable = true;
     const num = el('div', 'thumb-num'); num.textContent = String(i + 1);
+    if (s.hidden) { item.classList.add('hidden-slide'); num.title = 'Hidden slide'; }
     const card = el('div', 'thumb-card', { width: width + 'px' });
     card.setAttribute('role', 'button'); card.setAttribute('aria-label', 'Slide ' + (i + 1));
     const inner = el('div', 'thumb-inner', { width: width + 'px', height: Math.round(width * pres.H / pres.W) + 'px' });
     const sl = renderSlide(pres, s, {}); sl.style.transform = 'scale(' + (width / pres.W) + ')';
     inner.appendChild(sl); card.appendChild(inner); item.appendChild(num); item.appendChild(card);
+    if (s.hidden) { const hb = el('div', 'thumb-hid'); hb.textContent = 'Hidden'; card.appendChild(hb); }
     return item;
   }
   E.renderThumbs = () => {
@@ -684,7 +739,9 @@
     if (g.kind === 'move') {
       if (!g.moved && Math.hypot(dx, dy) * z < 3) return;
       g.moved = true;
-      E.live(() => g.origs.forEach((o) => { const s = E.shape(o.id); if (s) { s.x = Math.round(o.x + dx); s.y = Math.round(o.y + dy); } }));
+      let mx = dx, my = dy;
+      if (E.opts.snap) { const st = E.gridStep(), o0 = g.origs[0]; mx = Math.round((o0.x + dx) / st) * st - o0.x; my = Math.round((o0.y + dy) / st) * st - o0.y; }
+      E.live(() => g.origs.forEach((o) => { const s = E.shape(o.id); if (s) { s.x = Math.round(o.x + mx); s.y = Math.round(o.y + my); } }));
     } else if (g.kind === 'resize') {
       E.live(() => resizeShape(g, pt, ev));
     } else if (g.kind === 'rotate') {
@@ -727,6 +784,12 @@
     const cx = o.x + o.w / 2 + ox * cos - oy * sin, cy = o.y + o.h / 2 + ox * sin + oy * cos;
     const fw = R - L, fh = B - T;
     s.w = Math.round(fw); s.h = Math.round(fh); s.x = Math.round(cx - fw / 2); s.y = Math.round(cy - fh / 2);
+    if (E.opts.snap && !o.rot) {
+      const st = E.gridStep(), sn = (v) => Math.round(v / st) * st;
+      const l = sn(s.x), t = sn(s.y), r = sn(s.x + s.w), b = sn(s.y + s.h);
+      if (hasW || hasE) { s.x = Math.round(l); s.w = Math.max(MIN_SIZE, Math.round(r - l)); }
+      if ((hasN || hasS) && !Q.isLineType(o.type)) { s.y = Math.round(t); s.h = Math.max(MIN_SIZE, Math.round(b - t)); }
+    }
   }
 
   function onPointerUp(ev) {
@@ -777,6 +840,7 @@
     if (inEdit) {
       if (k === 'Escape') { ev.preventDefault(); E.stopEdit(); return; }
       if (k === 'Tab' && E.editCell) { ev.preventDefault(); E.tableTab(ev.shiftKey ? -1 : 1); return; }
+      if (mod && (k === 'b' || k === 'i' || k === 'u')) { ev.preventDefault(); E.toggleStyle(k === 'b' ? 'bold' : k === 'i' ? 'italic' : 'underline'); return; }
       if (mod && k === 'm') { ev.preventDefault(); E.newSlide(); }
       return; // everything else is native text editing
     }
@@ -784,6 +848,12 @@
     if (mod && k === 'm') { ev.preventDefault(); E.newSlide(); return; }
     if (mod && k === 'z') { ev.preventDefault(); if (ev.shiftKey) E.redo(); else E.undo(); return; }
     if (mod && k === 'y') { ev.preventDefault(); E.redo(); return; }
+    if (mod && (k === 'b' || k === 'i' || k === 'u')) { if (E.textShapes().length) { ev.preventDefault(); E.toggleStyle(k === 'b' ? 'bold' : k === 'i' ? 'italic' : 'underline'); } return; }
+    if (E.focusArea === 'thumbs') {
+      if (mod && k === 'c') { ev.preventDefault(); E.copySlide(); return; }
+      if (mod && k === 'x') { ev.preventDefault(); E.cutSlide(); return; }
+      if (mod && k === 'v') { if (E.hasSlideClip()) { ev.preventDefault(); E.pasteSlide(); } return; }
+    }
     if (mod && k === 'c') { if (E.copy()) ev.preventDefault(); return; }
     if (mod && k === 'x') { if (E.cut()) ev.preventDefault(); return; }
     if (mod && k === 'v') { if (E.paste()) ev.preventDefault(); return; }
@@ -828,7 +898,7 @@
 
   // ---- thumbnails: select + drag & drop ----
   function wireThumbs(container, horizontal) {
-    container.addEventListener('pointerdown', () => { E.focusArea = 'thumbs'; });
+    container.addEventListener('pointerdown', () => { if (E.focusArea !== 'thumbs') { E.focusArea = 'thumbs'; E.emit('selection'); } });
     container.addEventListener('click', (ev) => {
       const it = ev.target.closest('.thumb-item'); if (!it) return;
       E.selectSlide(Number(it.dataset.index));
@@ -876,7 +946,11 @@
     wireThumbs(thumbList, false); wireThumbs(sorterEl, true);
     sorterEl.addEventListener('dblclick', (ev) => { if (ev.target.closest('.thumb-item')) E.setView('normal'); });
     thumbList.addEventListener('focus', () => { E.focusArea = 'thumbs'; });
-    document.getElementById('center').addEventListener('pointerdown', () => { E.focusArea = 'canvas'; }, true);
+    document.getElementById('center').addEventListener('pointerdown', () => { if (E.focusArea !== 'canvas') { E.focusArea = 'canvas'; E.emit('selection'); } }, true);
+    stageScroll.addEventListener('wheel', (ev) => { if (!ev.ctrlKey) return; ev.preventDefault(); E.zoomStep(ev.deltaY < 0 ? 1 : -1); }, { passive: false });
+    stageScroll.addEventListener('scroll', () => E.renderRulers());
+    stage.addEventListener('dragover', (ev) => { if (ev.dataTransfer && Array.from(ev.dataTransfer.types || []).indexOf('Files') >= 0) ev.preventDefault(); });
+    stage.addEventListener('drop', (ev) => { const f = ev.dataTransfer && ev.dataTransfer.files; if (f && f.length) { ev.preventDefault(); E.emit('dropfiles', Array.from(f)); } });
     notesInput.addEventListener('focus', () => E.begin());
     notesInput.addEventListener('input', () => { E.slide().notes = notesInput.value; changed('notes'); });
     notesInput.addEventListener('blur', () => E.endGesture());
