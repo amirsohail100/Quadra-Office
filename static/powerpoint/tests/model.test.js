@@ -399,3 +399,86 @@ test('v3: slide timings and show options', () => {
   const q = Presentation.fromJSON(p.toJSON()); assert.deepEqual(q.show, p.show); assert.deepEqual(q.slides[0].advance, p.slides[0].advance);
   const d = p.duplicateSlide(0); assert.deepEqual(p.slides[d].advance, p.slides[0].advance);
 });
+
+// ---------------------------------------------------------------- version 4
+const DICT = require('../assets/dict-en.js');
+const speller = E.makeSpeller(DICT.aff, DICT.dic);
+
+test('v4: new shape types, line height, hidden slides', () => {
+  const p = Presentation.blank(); p.addSlide('blank');
+  ['rrect', 'triangle', 'diamond', 'hexagon', 'star', 'rarrow'].forEach((t) => { const s = p.addShape(1, t); assert.equal(s.type, t); assert.ok(E.canHoldText(s)); assert.equal(s.ts.align, 'center'); assert.ok(E.SHAPE_NAMES[t]); });
+  assert.ok(E.POLY.star.split(' ').length === 10);
+  assert.equal(p.addShape(1, 'textbox').ts.lineHeight, 1.2); p.updateShape(1, p.slides[1].shapes[0].id, { ts: { lineHeight: 9 } }); assert.equal(E.normShape(p.slides[1].shapes[0]).ts.lineHeight, 3);
+  p.addSlide('blank'); p.setHidden(1, true);
+  assert.deepEqual(new ShowState(p, 0).order, [0, 2], 'hidden slide skipped');
+  assert.deepEqual(new ShowState(p, 1).order, [0, 1, 2], 'but a hidden slide can be the start'); assert.equal(new ShowState(p, 1).i, 1);
+  p.setHidden(0, true); p.setHidden(2, true); assert.equal(new ShowState(p, 0).order.length >= 1, true);
+  assert.equal(Presentation.fromJSON(p.toJSON()).slides[1].hidden, true);
+});
+
+test('v4: comments have replies, resolved state and per-person unread', () => {
+  const p = Presentation.blank(); const c = p.addComment(0, 'Check this', 'Asha');
+  assert.deepEqual(c.seenBy, ['Asha']); assert.equal(p.unreadCount('Ravi'), 1); assert.equal(p.unreadCount('Asha'), 0);
+  assert.ok(p.markRead(0, c.id, 'Ravi')); assert.equal(p.unreadCount('Ravi'), 0);
+  assert.equal(p.replyComment(0, c.id, '  ', 'Ravi'), null); const r = p.replyComment(0, c.id, 'Done', 'Ravi'); assert.equal(r.text, 'Done');
+  assert.equal(p.unreadCount('Asha'), 1, 'a reply makes the thread unread for the others'); assert.equal(p.unreadCount('Ravi'), 0);
+  assert.ok(p.setResolved(0, c.id, true)); assert.equal(p.slides[0].comments[0].resolved, true);
+  p.addComment(0, 'Second', 'Meena'); assert.equal(p.markAllRead('Asha'), 2); assert.equal(p.unreadCount('Asha'), 0);
+  const q = Presentation.fromJSON(p.toJSON()); assert.equal(q.slides[0].comments[0].replies.length, 1); assert.equal(q.slides[0].comments[0].resolved, true);
+  const old = Presentation.fromJSON({ slides: [{ comments: [{ text: 'legacy', author: 'Zed' }] }] }); assert.deepEqual(old.slides[0].comments[0].seenBy, ['Zed']);
+});
+
+test('v4: accessibility levels (duplicate titles, small text, low contrast, table header)', () => {
+  const p = Presentation.blank(); p.slides[0].shapes[0].text = 'Same'; p.addSlide('titleContent'); p.slides[1].shapes[0].text = 'Same';
+  let i = p.checkAccessibility(); assert.deepEqual(i.map((x) => x.level + ':' + x.msg.slice(0, 25)), ['warning:Slide 2 has the same titl']);
+  const t = p.addShape(1, 'textbox', { text: 'tiny', ts: { size: 9, color: '#ffffff' } }); i = p.checkAccessibility();
+  assert.ok(i.some((x) => x.msg.includes('very small'))); assert.ok(i.some((x) => x.msg.includes('low contrast') && x.shapeId === t.id));
+  const tb = p.addShape(1, 'table', { rows: 2, cols: 2 }); p.updateShape(1, tb.id, { header: false }); assert.ok(p.checkAccessibility().some((x) => x.msg.includes('no header row')));
+  assert.ok(E.contrastRatio('#000000', '#ffffff') > 20); assert.ok(p.checkAccessibility().every((x) => x.level === 'error' || x.level === 'warning'));
+});
+
+test('v4: reader text follows reading order and covers tables, pictures, charts and notes', () => {
+  const p = Presentation.blank(); const s = p.slides[0];
+  s.shapes[0].text = 'My title'; s.shapes[1].text = 'Sub';
+  p.addShape(0, 'textbox', { text: 'one\ntwo', x: 100, y: 600, ts: { list: 'bullet' } }); p.addShape(0, 'table', { rows: 2, cols: 2, x: 100, y: 400 });
+  p.setCell(0, s.shapes[3].id, 0, 0, 'A'); p.setCell(0, s.shapes[3].id, 0, 1, 'B'); p.addShape(0, 'picture', { alt: 'a cat', y: 300 }); p.addShape(0, 'chart', { y: 500, chart: { kind: 'bar', title: 'Sales', labels: ['x', 'y'], values: [1, 2] } }); p.setNotes(0, 'say hi');
+  const r = E.readerText(s, true); assert.equal(r[0].kind, 'title'); assert.deepEqual(r.map((x) => x.kind), ['title', 'alt', 'text', 'table', 'alt', 'bullet', 'bullet', 'notes'], 'sorted top to bottom');
+  assert.ok(r[3].text.startsWith('Header: A, B')); assert.equal(r[1].text, 'Picture: a cat'); assert.equal(E.readerText(s, false).some((x) => x.kind === 'notes'), false);
+});
+
+test('v4: comparing two versions lists the changes', () => {
+  const a = Presentation.blank(); a.addSlide('titleContent'); a.slides[0].shapes[0].text = 'Hello'; const b = Presentation.fromJSON(a.toJSON());
+  assert.deepEqual(E.diffPresentations(a, b), []);
+  b.slides[0].shapes[0].text = 'Hello world'; b.setNotes(1, 'n'); b.setTransition(1, { type: 'fade' }); b.addSlide('blank'); b.deleteSlide(0); b.name = 'New'; b.setHidden(0, true);
+  const d = E.diffPresentations(a, b).map((x) => x.text); assert.ok(d.some((x) => x.includes('renamed'))); assert.ok(d.some((x) => x.includes('was removed') && x.includes('Hello'))); assert.ok(d.some((x) => x.includes('was added')));
+  assert.ok(d.some((x) => x.includes('speaker notes'))); assert.ok(d.some((x) => x.includes('transition changed to Fade'))); assert.ok(d.some((x) => x.includes('hidden')));
+  const c = Presentation.fromJSON(a.toJSON()); c.slides[0].shapes[0].text = 'Changed'; c.slides[0].shapes[0].x += 10; c.moveSlide(0, 1);
+  const d2 = E.diffPresentations(a, c).map((x) => x.text); assert.ok(d2.some((x) => x.includes('text changed') && x.includes('Hello') && x.includes('Changed'))); assert.ok(d2.some((x) => x.includes('moved')));
+});
+
+test('v4: review finds content problems', () => {
+  const p = Presentation.blank(); p.addSlide('blank'); p.slides[0].shapes[0].text = 'Title';
+  const words = Array(120).fill('word').join(' '); p.addShape(0, 'textbox', { text: words });
+  let i = E.reviewIssues(p, 3).map((x) => x.msg); assert.ok(i.some((m) => m.includes('120') || m.includes('words'))); assert.ok(i.some((m) => m.includes('3 possible spelling'))); assert.ok(i.some((m) => m.includes('Slide 2 is empty'))); assert.ok(i.some((m) => m.includes('speaker notes')));
+  ['Arial', 'Georgia', 'Verdana', 'Impact'].forEach((f) => p.addShape(0, 'textbox', { text: 'x', ts: { font: f } })); i = E.reviewIssues(p, 0).map((x) => x.msg); assert.ok(i.some((m) => m.includes('4 different fonts')));
+  assert.equal(E.reviewIssues(p, 0).every((x) => ['error', 'warning', 'tip'].includes(x.level) && x.area), true);
+});
+
+test('v4: spell checker knows words with affixes, rejects typos, suggests fixes', () => {
+  ['hello', 'Hello', 'running', 'cats', 'unhappy', 'rewrite', 'presentation', 'it\'s', 'self-esteem', 'went'].forEach((w) => assert.ok(speller.check(w), w));
+  ['teh', 'recieve', 'speling', 'helo', 'qwxzy'].forEach((w) => assert.equal(speller.check(w), false, w));
+  assert.ok(speller.suggest('teh').includes('the')); assert.ok(speller.suggest('recieve').includes('receive')); assert.ok(speller.suggest('Helo').includes('Hello')); assert.ok(speller.suggest('alot').includes('a lot'));
+  assert.deepEqual(E.misspellings('A tset of speling, NASA iPhone www.qqzz.com 12abc', speller, null).map((m) => m.word), ['tset', 'speling']);
+  assert.deepEqual(E.misspellings('speling', speller, new Set(['speling'])), []);
+});
+
+test('v4: spelling issues over the deck, replace one and replace all', () => {
+  const p = Presentation.blank(); p.slides[0].shapes[0].text = 'Teh start'; p.slides[0].shapes[1].text = 'teh end teh'; p.setNotes(0, 'note: recieve');
+  const t = p.addShape(0, 'table', { rows: 1, cols: 1 }); p.setCell(0, t.id, 0, 0, 'wrng');
+  let i = E.spellIssues(p, speller, null); assert.deepEqual(i.map((x) => x.field + ':' + x.word), ['text:Teh', 'text:teh', 'text:teh', 'cell:wrng', 'notes:recieve']);
+  assert.ok(E.spellReplace(p, i[0], 'The')); assert.equal(p.slides[0].shapes[0].text, 'The start');
+  assert.equal(E.spellReplaceAll(p, speller, 'teh', 'the'), 2); assert.equal(p.slides[0].shapes[1].text, 'the end the');
+  assert.ok(E.spellReplace(p, E.spellIssues(p, speller, null).find((x) => x.field === 'cell'), 'wrong')); assert.equal(p.getShape(0, t.id).cells[0][0], 'wrong');
+  assert.ok(E.spellReplace(p, E.spellIssues(p, speller, null).find((x) => x.field === 'notes'), 'receive')); assert.equal(p.slides[0].notes, 'note: receive');
+  assert.deepEqual(E.spellIssues(p, speller, null), []); assert.equal(E.spellReplace(p, { slide: 0, shapeId: 'nope', field: 'text', index: 0, word: 'x' }, 'y'), false);
+});
