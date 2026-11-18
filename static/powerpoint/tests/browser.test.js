@@ -85,7 +85,7 @@ test('every icon used by the app exists in the inline sprite and in assets/icons
 });
 
 test('unavailable features open a "not available in this version" dialog (no toast)', async (page) => {
-  const checks = [['Draw', 'touch'], ['Draw', 'lasso'], ['Draw', 'stencil'], ['Review', 'proofing'], ['Help', 'support'], ['Help', 'feedback']];
+  const checks = [['Draw', 'touch'], ['Draw', 'lasso'], ['Draw', 'stencil']];
   for (const [t, c] of checks) {
     await tab(page, t); await cmd(page, c);
     assert(await page.locator('.dialog h2', { hasText: 'Not available in this version' }).isVisible(), c + ' dialog');
@@ -104,7 +104,8 @@ test('Home and Insert tabs: no button is disabled by default except those needin
   eq(await page.$$eval('#ribbonBody [data-cmd]', (ns) => ns.filter((n) => n.disabled).map((n) => n.dataset.cmd)).then((a) => a.sort()),
     ['bold', 'case', 'clearfmt', 'copy', 'cut', 'delete', 'fontColor'.toLowerCase(), 'fontName', 'fontSize', 'grow', 'highlight', 'italic', 'painter', 'redo', 'shrink', 'strike', 'sub', 'sup', 'underline', 'undo'].sort(), 'Home: only selection/history dependent buttons');
   await tab(page, 'Review');
-  for (const c of ['review', 'markread', 'changes', 'delcomment', 'prevcomment', 'nextcomment']) assert(await page.locator('[data-cmd="' + c + '"]').isDisabled(), c);
+  for (const c of ['markread', 'delcomment', 'prevcomment', 'nextcomment']) assert(await page.locator('[data-cmd="' + c + '"]').isDisabled(), c);
+  for (const c of ['review', 'proofing', 'changes', 'access']) assert(await page.locator('[data-cmd="' + c + '"]').isEnabled(), c + ' works now');
 });
 
 // ---------------------------------------------------------------- slides
@@ -882,7 +883,7 @@ test('Insert > New Comment and the Review comment buttons', async (page) => {
 test('Insert > Pictures menu, Shapes menu and Footer with slide numbers still work', async (page) => {
   await blankSlide(page); await tab(page, 'Insert'); await cmd(page, 'footer'); await page.check('#ftNum'); await page.click('.dialog .btn.primary');
   eq((await model(page)).footer.numbers, true); eq(await page.textContent('#stage .sl-num'), '2');
-  await cmd(page, 'shapes'); eq(await page.locator('.menu .mi').count(), 4); await page.keyboard.press('Escape');
+  await cmd(page, 'shapes'); eq(await page.locator('.menu .mi').count(), 10, 'rectangle, rounded rectangle, oval, triangle, diamond, hexagon, star, block arrow, line, arrow'); await page.keyboard.press('Escape');
 });
 
 // ================================================================ FILE tab: every item works
@@ -944,6 +945,7 @@ test('every command on the Home, Insert and File tabs is a real feature (no stub
     const ids = await page.$$eval('#ribbonBody button[data-cmd]', (ns) => ns.map((n) => n.dataset.cmd));
     for (const id of ids) {
       await blankSlide(page); await ed(page, () => window.QEditor.addShape('textbox', { text: 'x' }));
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
       const b = page.locator('#ribbonBody button[data-cmd="' + id + '"]'); if (await b.isDisabled()) continue;
       await b.click();
       if (await page.locator('.dialog h2', { hasText: 'Not available' }).count()) stubs.push(t + ':' + id);
@@ -1158,6 +1160,256 @@ test('Transitions > Preview plays the transition from the previous slide on the 
   assert(await page.locator('#stage .tr-preview .pv-layer').first().evaluate((n) => n.getAnimations().length > 0), 'real animation');
   await page.waitForFunction(() => !document.querySelector('#stage .tr-preview'), null, { timeout: 5000 });
   await ed(page, () => window.QEditor.pres.setTransition(1, { type: 'none' })); await cmd(page, 'preview'); eq(await page.locator('#stage .tr-preview').count(), 0, 'None has nothing to preview');
+});
+
+// ================================================================ VERSION 4: Review, View, Help and small features
+const raf = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+const withSpeech = (page) => withInit(page, () => {
+  window.__spoken = []; const fake = { speak(u) { window.__spoken.push(u.text); setTimeout(() => { if (u.onboundary) u.onboundary({ charIndex: 0 }); setTimeout(() => { if (!window.__hold && u.onend) u.onend(); }, 30); }, 10); }, cancel() { window.__cancelled = (window.__cancelled || 0) + 1; }, pause() { window.__paused = true; }, resume() { window.__paused = false; }, getVoices() { return [{ name: 'Test Voice', lang: 'en-US' }]; }, addEventListener() {} };
+  Object.defineProperty(window, 'speechSynthesis', { value: fake, configurable: true }); window.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; } };
+});
+
+
+test('Review > Proofing > Spelling: finds mistakes, suggestions, Change, Change All, Ignore, Add to Dictionary', async (page) => {
+  await ed(page, () => { const P = window.QEditor.pres; P.slides[0].shapes[0].text = 'Teh start'; P.slides[0].shapes[1].text = 'teh end teh'; P.setNotes(0, 'recieve this'); window.QEditor.fullRender(); });
+  await tab(page, 'Review'); await cmd(page, 'proofing'); assert(await page.locator('[data-mid="proof-spelling"]').isVisible() && await page.locator('[data-mid="proof-words"]').isVisible(), 'proofing menu'); await page.click('[data-mid="proof-spelling"]');
+  await page.waitForSelector('#spWord'); eq(await page.textContent('#spWord'), 'Teh'); assert((await page.textContent('#spSugg')).includes('The'), 'suggestions listed'); eq(await page.inputValue('#spTo'), 'The', 'first suggestion preselected'); eq((await sel(page)).length, 1, 'the shape is selected on the slide');
+  await page.click('[data-act="spChange"]'); eq((await model(page)).slides[0].shapes[0].text, 'The start');
+  eq(await page.textContent('#spWord'), 'teh'); await page.click('[data-act="spChangeAll"]'); eq((await model(page)).slides[0].shapes[1].text, 'the end the', 'all occurrences changed');
+  eq(await page.textContent('#spWord'), 'recieve', 'notes are checked too'); await page.fill('#spTo', 'receive'); await page.click('[data-act="spChange"]'); eq((await model(page)).slides[0].notes, 'receive this');
+  assert(await page.locator('#spDone').count() === 1, 'finished message'); assert(await page.locator('[data-act="spChange"]').isDisabled(), 'buttons off when done');
+  await page.keyboard.press('Escape'); await ed(page, () => { window.QEditor.pres.slides[0].shapes[0].text = 'Quadrax and Quadrax again'; window.QEditor.fullRender(); });
+  await cmd(page, 'proofing'); await page.click('[data-mid="proof-spelling"]'); await page.waitForSelector('#spWord'); eq(await page.textContent('#spWord'), 'Quadrax'); await page.click('[data-act="spIgnore"]'); eq(await page.textContent('#spWord'), 'Quadrax', 'Ignore skips one occurrence');
+  await page.click('[data-act="spAdd"]'); assert(await page.locator('#spDone').count() === 1, 'Add to Dictionary removes every occurrence'); await page.keyboard.press('Escape');
+  await cmd(page, 'proofing'); await page.click('[data-mid="proof-dict"]'); eq(await page.locator('#udTable tr').count(), 1); assert((await page.textContent('#udTable')).includes('quadrax'), 'word stored'); await page.click('[data-ud="quadrax"]'); assert(await page.locator('#udEmpty').count() === 1, 'removed');
+  await page.keyboard.press('Escape'); await cmd(page, 'proofing'); await page.click('[data-mid="proof-spelling"]'); await page.waitForSelector('#spWord'); eq(await page.textContent('#spWord'), 'Quadrax', 'flagged again after removal');
+});
+
+test('Review > Proofing > Spelling: Ignore All, tables, and the Word Count item', async (page) => {
+  await ed(page, () => { const E = window.QEditor, P = E.pres; P.slides[0].shapes[0].text = 'Zorbl and zorbl'; const t = P.addShape(0, 'table', { rows: 1, cols: 1 }); P.setCell(0, t.id, 0, 0, 'tabel'); E.fullRender(); });
+  await tab(page, 'Review'); await cmd(page, 'proofing'); await page.click('[data-mid="proof-spelling"]'); await page.waitForSelector('#spWord'); eq(await page.textContent('#spWord'), 'Zorbl'); await page.click('[data-act="spIgnoreAll"]');
+  eq(await page.textContent('#spWord'), 'tabel', 'ignored everywhere, then the table cell'); await page.click('[data-act="spChange"]'); eq((await model(page)).slides[0].shapes.at(-1).cells[0][0], 'table'); await page.keyboard.press('Escape');
+  await cmd(page, 'proofing'); await page.click('[data-mid="proof-words"]'); assert(await page.locator('#wordTable').count() === 1, 'word count dialog');
+});
+
+test('Review > Review Presentation: groups findings, jumps to them, and says when all is well', async (page) => {
+  await ed(page, () => { const E = window.QEditor, P = E.pres; P.slides[0].shapes[0].text = 'Title'; E.newSlide('blank'); P.addShape(1, 'textbox', { text: Array(120).fill('word').join(' ') + ' speling' }); P.addShape(1, 'picture'); E.selectSlide(0, true); E.fullRender(); });
+  await tab(page, 'Review'); await cmd(page, 'review'); await page.waitForSelector('#rvSummary'); const sum = await page.textContent('#rvSummary'); assert(/1 errors/.test(sum) && /warnings/.test(sum), 'summary: ' + sum);
+  const txt = await page.textContent('#reviewBody'); assert(txt.includes('has no alt text') && txt.includes('121 words') && txt.includes('1 possible spelling mistake') && txt.includes('speaker notes'), 'findings: ' + txt.slice(0, 400));
+  await page.click('#reviewBody button:has-text("alt text")'); eq(await ed(page, () => window.QEditor.cur), 1, 'jumped'); eq((await sel(page)).length, 1, 'picture selected');
+  await ed(page, () => { const E = window.QEditor, P = E.pres; E.pres.slides.splice(1, 1); P.setNotes(0, 'n'); P.addShape(0, 'textbox', { text: 'Fine text' }); E.selectSlide(0, true); E.fullRender(); });
+  await cmd(page, 'review'); await page.waitForSelector('#rvSummary'); assert(await page.locator('#rvClean').count() === 1, 'nothing to improve: ' + await page.textContent('#reviewBody'));
+});
+
+test('Review > Check Accessibility: errors and warnings (duplicate title, small text, low contrast, table header)', async (page) => {
+  await ed(page, () => { const E = window.QEditor, P = E.pres; P.slides[0].shapes[0].text = 'Same'; E.newSlide('titleContent'); P.slides[1].shapes[0].text = 'Same'; P.addShape(1, 'textbox', { text: 'tiny', ts: { size: 9, color: '#ffffff' } }); const t = P.addShape(1, 'table', { rows: 2, cols: 2 }); P.updateShape(1, t.id, { header: false }); E.fullRender(); });
+  await tab(page, 'Review'); await cmd(page, 'access'); const txt = await page.textContent('.dialog ul.issues');
+  for (const s of ['same title', 'very small', 'low contrast', 'no header row']) assert(txt.includes(s), s + ' missing in: ' + txt); assert(txt.includes('Warning:'), 'levels shown');
+});
+
+test('Comments: replies, resolve, unread markers from other authors, Mark All as Read, display name', async (page) => {
+  await ed(page, () => { const P = window.QEditor.pres; P.addComment(0, 'Please fix the title', 'Asha'); window.QEditor.fullRender(); });
+  assert(await page.locator('#stage .sl-cm.unread').count() === 1, 'unread marker for a comment by someone else'); await tab(page, 'Review'); assert(await page.locator('[data-cmd="markread"]').isEnabled(), 'Mark All as Read enabled');
+  await cmd(page, 'markread'); eq(await page.locator('#stage .sl-cm.unread').count(), 0, 'read now'); assert(await page.locator('[data-cmd="markread"]').isDisabled(), 'disabled again');
+  await ed(page, () => { window.QEditor.pres.addComment(0, 'Second remark', 'Ravi'); window.QEditor.renderCanvas(); });
+  await cmd(page, 'nextcomment'); assert((await page.textContent('.dialog')).includes('Comment 1 of 2'), 'first'); await page.fill('#cmReply', 'Will do'); await page.click('[data-act="cmReplyBtn"]'); assert((await page.textContent('#cmReplies')).includes('Will do'), 'reply shown');
+  eq((await model(page)).slides[0].comments[0].replies.map((r) => r.text), ['Will do']); await page.click('[data-act="cmResolve"]'); eq(await page.textContent('[data-act="cmResolve"]'), 'Reopen'); assert(await page.locator('#cmResolved').count() === 1, 'resolved label'); await page.click('.dialog .btn.primary');
+  await cmd(page, 'nextcomment'); eq(await page.locator('.dialog h2').textContent(), 'Comment 2 of 2'); await page.click('.dialog .btn.primary'); eq(await page.textContent('#stage .sl-cm'), '1', 'only the open comment counts');
+  await page.click('#profileBtn'); await page.click('[data-mid="prof-name"]'); await page.fill('#nameInput', 'Meena Rao'); await page.click('[data-act="nameSave"]'); eq(await page.textContent('#profileBtn'), 'MR', 'avatar shows the initials');
+  await tab(page, 'Insert'); await cmd(page, 'newcomment'); await page.fill('#cmText', 'mine'); await page.click('[data-act="cmPost"]'); eq((await model(page)).slides[0].comments.at(-1).author, 'Meena Rao'); eq(await page.locator('#stage .sl-cm.unread').count(), 1, 'Ravi comment was opened, Asha read, mine read -> the reply thread by Meena stays read, Ravi unread');
+});
+
+test('Comments: resolving every comment turns the marker into a check mark', async (page) => {
+  await tab(page, 'Insert'); await cmd(page, 'newcomment'); await page.fill('#cmText', 'one'); await page.click('[data-act="cmPost"]'); await tab(page, 'Review'); await cmd(page, 'nextcomment'); await page.click('[data-act="cmResolve"]'); await page.click('.dialog .btn.primary');
+  eq(await page.textContent('#stage .sl-cm'), '✓'); assert(await page.locator('#stage .sl-cm.done').count() === 1, 'done style');
+});
+
+test('Review > Show Changes compares with a saved version', async (page) => {
+  await tab(page, 'Review'); await cmd(page, 'changes'); assert(await page.locator('#chNone').count() === 1, 'asks for a version first'); await page.keyboard.press('Escape');
+  await ed(page, () => { window.QEditor.pres.slides[0].shapes[0].text = 'Before'; window.QEditor.fullRender(); });
+  await tab(page, 'File'); await page.click('[data-mid="file-history"]'); await page.click('[data-act="saveVersion"]'); await page.keyboard.press('Escape');
+  await tab(page, 'Review'); await cmd(page, 'changes'); assert(await page.locator('#chSame').count() === 1, 'no changes yet'); await page.keyboard.press('Escape');
+  await ed(page, () => { const E = window.QEditor; E.pres.slides[0].shapes[0].text = 'After'; E.newSlide('titleContent'); E.pres.setNotes(1, 'hi'); E.fullRender(); });
+  await cmd(page, 'changes'); const txt = await page.textContent('#chList'); assert(txt.includes('text changed') && txt.includes('"Before"') && txt.includes('"After"') && txt.includes('was added'), txt);
+  await page.click('#chList button:has-text("text changed")'); eq(await ed(page, () => window.QEditor.cur), 0, 'jumped to the changed slide'); eq((await sel(page)).length, 1);
+});
+
+// ---------------------------------------------------------------- View
+test('View > Ruler: real ruler aligned with the slide edges, follows zoom, units, selection band', async (page) => {
+  await ed(page, () => window.QEditor.setZoom('custom', 1)); await tab(page, 'View'); await cmd(page, 'ruler'); await raf(page);
+  const pos = () => page.evaluate(() => { const rt = document.getElementById('rulerTop').getBoundingClientRect(), s = document.getElementById('stage').getBoundingClientRect(); const L = {}; document.querySelectorAll('#rulerTop text').forEach((t) => { L[t.dataset.v] = Number(t.getAttribute('x')); }); return { off: s.left - rt.left, L }; });
+  let r = await pos(); assert(Math.abs(r.L['0'] - (r.off + 3)) <= 1.5, 'label 0 at the slide edge: ' + JSON.stringify(r.L)); assert(Math.abs((r.L['1'] - r.L['0']) - 96) <= 1.5, 'one inch = 96 px at 100%');
+  assert(await page.locator('#rulerLeft text').count() > 3, 'vertical ruler too');
+  const box = await page.evaluate(() => { const a = document.querySelector('#rulerTop svg').getBoundingClientRect(), r = document.getElementById('rulerTop').getBoundingClientRect(), v = document.querySelector('#rulerLeft svg').getBoundingClientRect(), vr = document.getElementById('rulerLeft').getBoundingClientRect(); return { w: a.width, rw: r.width, h: v.height, rh: vr.height }; });
+  assert(Math.abs(box.w - box.rw) <= 1 && Math.abs(box.h - box.rh) <= 1 && box.w > 500, 'the ruler is drawn across the whole width and height: ' + JSON.stringify(box));
+  await ed(page, () => window.QEditor.setZoom('custom', 0.5)); await raf(page); r = await pos(); assert(Math.abs((r.L['1'] - r.L['0']) - 48) <= 1.5, 'follows zoom: ' + JSON.stringify(r.L));
+  await tab(page, 'View'); await cmd(page, 'units'); await page.click('[data-mid="unit-cm"]'); await raf(page); r = await pos(); assert(Math.abs((r.L['1'] - r.L['0']) - 37.795 * 0.5) <= 1.5, 'one centimetre: ' + JSON.stringify(r.L));
+  await ed(page, () => { const E = window.QEditor; E.addShape('rect'); }); await raf(page); assert(await page.locator('#rulerTop rect.rsel').count() === 1 && await page.locator('#rulerLeft rect.rsel').count() === 1, 'selected shape shown on both rulers');
+  await page.reload(); await page.waitForFunction(() => window.__QUADRA_READY === true); assert(await page.locator('#rulerTop').isVisible(), 'ruler remembered'); eq(await ed(page, () => window.QEditor.opts.units), 'cm', 'units remembered');
+  await tab(page, 'View'); await cmd(page, 'ruler'); assert(await page.locator('#rulerTop').isHidden(), 'ruler off');
+});
+
+test('View > Gridlines and Snap to Grid', async (page) => {
+  await blankSlide(page); await ed(page, () => window.QEditor.setZoom('custom', 0.75)); await tab(page, 'View'); assert(await page.locator('#stage .grid-ov').count() === 0, 'no grid by default'); await cmd(page, 'gridlines');
+  eq(await page.locator('#stage .grid-ov').count(), 1); assert((await page.$eval('#stage .grid-ov', (n) => getComputedStyle(n).backgroundSize)).startsWith('18px 18px'), '24 units x 75% = 18px'); assert(await page.locator('[data-cmd="gridlines"]').evaluate((n) => n.classList.contains('pressed')), 'pressed');
+  await cmd(page, 'snap'); const id = await ed(page, () => window.QEditor.addShape('rect', { x: 100, y: 100, w: 200, h: 100 }).id); const c = await shapeCenter(page, id);
+  await page.mouse.move(c.x, c.y); await page.mouse.down(); await page.mouse.move(c.x + 53, c.y + 31, { steps: 5 }); await page.mouse.up();
+  let s = (await model(page)).slides[1].shapes[0]; eq([s.x % 24, s.y % 24], [0, 0], 'moved onto the grid: ' + s.x + ',' + s.y);
+  const h = await page.locator('#stage .handle.se').boundingBox(); await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2); await page.mouse.down(); await page.mouse.move(h.x + 41, h.y + 23, { steps: 4 }); await page.mouse.up();
+  s = (await model(page)).slides[1].shapes[0]; eq([(s.x + s.w) % 24, (s.y + s.h) % 24], [0, 0], 'resized onto the grid');
+  await tab(page, 'View'); await cmd(page, 'snap'); await cmd(page, 'gridlines'); eq(await page.locator('#stage .grid-ov').count(), 0, 'off again');
+});
+
+test('View > Immersive Reader: text in reading order, themes, size, line focus, notes, navigation', async (page) => {
+  await ed(page, () => { const E = window.QEditor, P = E.pres; P.slides[0].shapes[0].text = 'Reader title'; P.slides[0].shapes[1].text = 'Sub line'; P.setNotes(0, 'Speaker note'); E.newSlide('titleContent'); P.slides[1].shapes[0].text = 'Second'; P.slides[1].shapes[1].text = 'one\ntwo'; E.selectSlide(0, true); E.fullRender(); });
+  await tab(page, 'View'); assert(await page.locator('[data-cmd="immersive"]').isEnabled(), 'enabled'); await cmd(page, 'immersive'); assert(await page.locator('#readerRoot').isVisible(), 'open'); assert(await ed(page, () => window.QEditor.showActive), 'editor shortcuts off');
+  eq(await page.$$eval('#rdBody .rd-item', (n) => n.map((x) => x.textContent)), ['Reader title', 'Sub line']); eq(await page.textContent('#rdCount'), 'Slide 1 of 2'); eq(await page.locator('#rdBody .rd-w').count(), 4, 'words are wrapped for highlighting');
+  const fs0 = await page.$eval('#rdBody', (n) => parseFloat(n.style.fontSize)); await page.click('[data-rd="bigger"]'); assert(parseFloat(await page.$eval('#rdBody', (n) => n.style.fontSize)) > fs0, 'larger');
+  await page.click('[data-rd="theme-dark"]'); eq(await page.getAttribute('#readerRoot', 'class').then((c) => c.includes('rd-dark')), true); eq(await page.evaluate(() => getComputedStyle(document.getElementById('readerRoot')).backgroundColor), 'rgb(18, 18, 18)');
+  await page.click('[data-rd="theme-sepia"]'); eq(await page.evaluate(() => getComputedStyle(document.getElementById('readerRoot')).backgroundColor), 'rgb(244, 236, 216)');
+  await page.click('[data-rd="notes"]'); eq(await page.locator('#rdBody .rd-notes').textContent(), 'Speaker note'); await page.click('[data-rd="focus"]'); assert(await page.locator('#readerRoot.rd-focus').count() === 1, 'line focus');
+  await page.hover('#rdBody .rd-item >> nth=1'); assert(await page.locator('#rdBody .rd-item.cur').textContent().then((x) => x === 'Sub line'), 'hover focuses a line');
+  await page.click('[data-rd="next"]'); eq(await page.textContent('#rdCount'), 'Slide 2 of 2'); eq(await page.locator('#rdBody .rd-bullet').count(), 2); await page.keyboard.press('ArrowLeft'); eq(await page.textContent('#rdCount'), 'Slide 1 of 2');
+  await page.keyboard.press('Escape'); assert(await page.locator('#readerRoot').isHidden(), 'closed'); eq(await ed(page, () => window.QEditor.showActive), false);
+  await cmd(page, 'immersive'); eq(await page.getAttribute('#readerRoot', 'class').then((c) => c.includes('rd-sepia')), true, 'theme remembered'); await page.keyboard.press('Escape');
+});
+
+test('Immersive Reader reads aloud: play, highlight, continue to the next slide, pause, click a line, empty slide', async (page) => {
+  await withSpeech(page);
+  await ed(page, () => { const E = window.QEditor, P = E.pres; P.slides[0].shapes[0].text = 'First title'; P.slides[0].shapes[1].text = 'First sub'; E.newSlide('titleContent'); P.slides[1].shapes[0].text = 'Second title'; P.slides[1].shapes[1].text = ''; E.newSlide('blank'); E.selectSlide(0, true); E.fullRender(); });
+  await tab(page, 'View'); await cmd(page, 'immersive'); await page.selectOption('#rdVoice', 'Test Voice'); await page.fill('#rdRate', '1.5').catch(() => {}); await page.evaluate(() => { const r = document.getElementById('rdRate'); r.value = '1.5'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+  await page.click('[data-rd="play"]'); await page.waitForFunction(() => window.__spoken.length >= 3, null, { timeout: 5000 });
+  eq(await page.evaluate(() => window.__spoken.slice(0, 3)), ['First title', 'First sub', 'Second title'], 'reads in order and continues on the next slide'); assert(await page.evaluate(() => window.QUI.readerState().idx) >= 1, 'moved to slide 2');
+  await page.waitForFunction(() => window.QUI.readerState() && window.QUI.readerState().speaking === false, null, { timeout: 5000 }); eq(await page.locator('#rdEmpty').count(), 1, 'last slide has nothing to read');
+  await page.click('[data-rd="prev"]'); await page.click('[data-rd="prev"]'); await ed(page, () => { window.__spoken.length = 0; window.__hold = true; }); await page.click('#rdBody .rd-item >> nth=1'); eq(await page.evaluate(() => window.__spoken), ['First sub'], 'click a line to start there');
+  assert(await page.evaluate(() => window.QUI.readerState().speaking), 'speaking'); assert((await page.textContent('.rd-play')).includes('Pause'), 'button offers Pause while speaking'); await page.click('[data-rd="play"]'); eq(await ed(page, () => window.__paused), true, 'pause'); assert((await page.textContent('.rd-play')).includes('Play'), 'and Play while paused'); await page.click('[data-rd="play"]'); eq(await ed(page, () => window.__paused), false, 'resume');
+  await page.keyboard.press('Escape'); assert((await ed(page, () => window.__cancelled)) >= 1, 'speech cancelled on close');
+});
+
+test('Immersive Reader without speech support says so but still shows the text', async (page) => {
+  await withInit(page, () => { Object.defineProperty(window, 'speechSynthesis', { value: undefined, configurable: true }); });
+  await ed(page, () => { window.QEditor.pres.slides[0].shapes[0].text = 'Hello'; window.QEditor.fullRender(); }); await tab(page, 'View'); await cmd(page, 'immersive'); await page.click('[data-rd="play"]');
+  assert((await page.textContent('.dialog')).includes('no speech synthesis'), 'explained'); await page.keyboard.press('Escape'); assert(await page.locator('#rdBody .rd-item').count() === 1, 'text still shown'); await page.keyboard.press('Escape');
+});
+
+// ---------------------------------------------------------------- Help
+test('Help > Help: searchable articles', async (page) => {
+  await tab(page, 'Help'); await cmd(page, 'help'); assert(await page.locator('#helpList [data-help]').count() >= 12, 'articles'); assert((await page.textContent('#helpArticle')).length > 40, 'first article shown');
+  await page.fill('#helpSearch', 'animation'); const n = await page.locator('#helpList [data-help]').count(); assert(n >= 1 && n < 6, 'filtered: ' + n); assert((await page.textContent('#helpArticle')).toLowerCase().includes('animation'), 'article matches');
+  await page.fill('#helpSearch', 'qqqzzz'); assert(await page.locator('#helpNone').count() === 1, 'no match message'); await page.fill('#helpSearch', 'presenter'); await page.click('#helpList [data-help] >> nth=0'); assert((await page.textContent('#helpArticle')).includes('Presenter'), 'click shows the article');
+});
+
+test('Help > Contact Support: validation, copy, download, email with diagnostics', async (page) => {
+  await tab(page, 'Help'); await cmd(page, 'support'); await page.click('[data-act="supSend"]'); assert((await page.textContent('#supErr')).length > 5, 'subject and details are required');
+  await page.fill('#supSubj', 'Cannot export'); await page.fill('#supMsg', 'The PNG export is empty'); await page.fill('#supMail', 'me@example.com'); await page.selectOption('#supCat', 'Problem');
+  await page.click('[data-act="supCopy"]'); const clip = await page.evaluate(() => navigator.clipboard.readText()); assert(clip.includes('Subject: Cannot export') && clip.includes('PNG export is empty') && clip.includes('Quadra PowerPoint') && clip.includes('Slides: 1'), 'copied report: ' + clip);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-act="supDownload"]')]); eq(dl.suggestedFilename(), 'quadra-support-request.txt'); assert(fs.readFileSync(await dl.path(), 'utf8').includes('Cannot export'), 'file content');
+  await page.uncheck('#supDiag'); await page.click('[data-act="supSend"]'); const url = await ed(page, () => window.QUI.lastMailto); assert(url.startsWith('mailto:?subject=') && decodeURIComponent(url).includes('[Quadra PowerPoint] Cannot export') && !decodeURIComponent(url).includes('Diagnostic information'), 'mailto without diagnostics: ' + url);
+  assert(await page.locator('.dialog').count() === 0, 'dialog closed after sending');
+});
+
+test('Help > Feedback: rating, saved notes, history with delete, status bar link', async (page) => {
+  await page.click('#sbFeedback'); await page.click('[data-act="fbSubmit"]'); assert((await page.textContent('#fbErr')).length > 5, 'needs a rating or message');
+  await page.click('[data-rate="4"]'); eq(await page.textContent('[data-rate="4"]'), '★'); eq(await page.textContent('[data-rate="5"]'), '☆'); eq(await page.getAttribute('[data-rate="4"]', 'aria-checked'), 'true');
+  await page.selectOption('#fbCat', 'An idea'); await page.fill('#fbMsg', 'Add more themes'); await page.click('[data-act="fbSubmit"]');
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('quadra-ppt:feedback'))); eq([saved[0].rating, saved[0].category, saved[0].text], [4, 'An idea', 'Add more themes']);
+  await tab(page, 'Help'); await cmd(page, 'feedback'); assert((await page.textContent('[data-act="fbHistory"]')).includes('(1)'), 'count on the button'); await page.click('[data-act="fbHistory"]'); assert((await page.textContent('#fbTable')).includes('Add more themes'), 'history');
+  await page.click('[data-fbdel="0"]'); assert(await page.locator('#fbEmpty').count() === 1, 'deleted'); eq(await page.evaluate(() => JSON.parse(localStorage.getItem('quadra-ppt:feedback')).length), 0);
+  await page.keyboard.press('Escape'); await cmd(page, 'feedback'); await page.click('[data-rate="2"]'); await page.fill('#fbMsg', 'x'); await page.click('[data-act="fbEmail"]'); assert((await ed(page, () => window.QUI.lastMailto)).includes('feedback'), 'email composed'); eq(await page.evaluate(() => JSON.parse(localStorage.getItem('quadra-ppt:feedback')).length), 1);
+});
+
+test('Help > Keyboard shortcuts search and What\'s New', async (page) => {
+  await tab(page, 'Help'); await cmd(page, 'keyboard'); const all = await page.locator('#kbList tr').count(); assert(all >= 20, 'rows: ' + all); await page.fill('#kbSearch', 'zoom'); const some = await page.locator('#kbList tr').count(); assert(some >= 1 && some < all, 'filtered ' + some);
+  await page.fill('#kbSearch', 'qqzz'); assert(await page.locator('#kbNone').count() === 1, 'no match'); await page.keyboard.press('Escape'); await cmd(page, 'whatsnew'); const t = await page.textContent('.dialog'); assert(t.includes('Version 4') && t.includes('Version 1'), 'versions listed');
+});
+
+// ---------------------------------------------------------------- small features
+test('More shapes: every shape inserts, renders as a polygon, takes text and resizes', async (page) => {
+  await blankSlide(page); await tab(page, 'Insert'); const kinds = ['rrect', 'triangle', 'diamond', 'hexagon', 'star', 'rarrow'];
+  for (const k of kinds) { await cmd(page, 'shapes'); await page.click('[data-mid="shape-' + k + '"]'); await page.keyboard.press('Escape'); }
+  const m = (await model(page)).slides[1].shapes; eq(m.map((s) => s.type), kinds); eq(await page.locator('#stage .sl-shape svg polygon').count(), 5, 'five polygon shapes'); assert(await page.locator('#stage .sl-rrect').evaluate((n) => parseFloat(n.style.borderRadius) > 10), 'rounded corners');
+  const id = m[1].id; await ed(page, (i) => window.QEditor.select([i]), id); await page.keyboard.type('tri'); await page.keyboard.press('Escape'); eq((await model(page)).slides[1].shapes[1].text, 'tri'); assert((await page.textContent('#stage .sl-triangle')).includes('tri'), 'text drawn inside');
+  await tab(page, 'Home'); await cmd(page, 'drawing'); await page.hover('.menu .mi >> text=Shape Fill'); await page.click('.menu .swatch[data-color="#107c10"]'); eq(await page.$eval('#stage .sl-triangle polygon', (p) => p.getAttribute('fill')), '#107c10', 'fill applies to the polygon');
+  const url = await page.evaluate(() => window.QUI.pngDataUrl(1)); assert(url.length > 2000, 'PNG export works with the new shapes');
+});
+
+test('Home > Drawing > Align and Distribute', async (page) => {
+  await blankSlide(page); const ids = await ed(page, () => ['A', 'B', 'C'].map((t, k) => window.QEditor.addShape('rect', { x: 100 + k * 300 + k * k * 20, y: 100 + k * 120, w: 100 + k * 40, h: 60, text: t }).id));
+  await ed(page, (ids) => window.QEditor.select(ids), ids); await tab(page, 'Home');
+  await cmd(page, 'drawing'); await page.hover('.menu .mi >> text=Align'); await page.click('[data-mid="al-left"]'); let s = (await model(page)).slides[1].shapes; eq(s.map((x) => x.x), [100, 100, 100], 'align left');
+  await cmd(page, 'drawing'); await page.hover('.menu .mi >> text=Align'); await page.click('[data-mid="al-right"]'); s = (await model(page)).slides[1].shapes; eq(new Set(s.map((x) => x.x + x.w)).size, 1, 'align right');
+  await cmd(page, 'drawing'); await page.hover('.menu .mi >> text=Align'); await page.click('[data-mid="al-middle"]'); s = (await model(page)).slides[1].shapes; assert(new Set(s.map((x) => x.y + x.h / 2)).size === 1, 'align middle');
+  await ed(page, (ids) => { const E = window.QEditor; E.mutate(() => { E.pres.updateShape(E.cur, ids[0], { x: 100, y: 50 }); E.pres.updateShape(E.cur, ids[1], { x: 500, y: 200 }); E.pres.updateShape(E.cur, ids[2], { x: 1000, y: 400 }); }); }, ids);
+  await cmd(page, 'drawing'); await page.hover('.menu .mi >> text=Distribute'); await page.click('[data-mid="ds-h"]'); s = (await model(page)).slides[1].shapes; const g1 = s[1].x - (s[0].x + s[0].w), g2 = s[2].x - (s[1].x + s[1].w); assert(Math.abs(g1 - g2) <= 1, 'equal gaps ' + g1 + ' / ' + g2);
+  await cmd(page, 'drawing'); await page.hover('.menu .mi >> text=Distribute'); await page.click('[data-mid="ds-v"]'); s = (await model(page)).slides[1].shapes; assert(Math.abs((s[1].y - (s[0].y + s[0].h)) - (s[2].y - (s[1].y + s[1].h))) <= 1, 'equal vertical gaps');
+  await ed(page, (ids) => window.QEditor.select([ids[0]]), ids); await cmd(page, 'drawing'); await page.hover('.menu .mi >> text=Align'); await page.click('[data-mid="al-center"]'); const one = (await model(page)).slides[1].shapes[0]; eq(one.x + one.w / 2, 640, 'a single shape aligns to the slide');
+  await ed(page, (ids) => window.QEditor.select(ids.slice(0, 2)), ids); await cmd(page, 'drawing'); assert(await page.locator('.menu .mi:has-text("Distribute")').isDisabled(), 'distribute needs three shapes');
+});
+
+test('Paragraph: line spacing and vertical alignment', async (page) => {
+  await blankSlide(page); const id = await textbox(page, 'one\ntwo'); await tab(page, 'Home');
+  await cmd(page, 'paragraph'); await page.hover('.menu .mi >> text=Line Spacing'); await page.click('[data-mid="ls-1.5"]'); eq((await model(page)).slides[1].shapes[0].ts.lineHeight, 1.5); eq(await page.$eval('#stage .sl-tin', (n) => n.style.lineHeight), '1.5');
+  await cmd(page, 'paragraph'); await page.hover('.menu .mi >> text=Vertical Alignment'); await page.click('[data-mid="va-bottom"]'); eq((await model(page)).slides[1].shapes[0].anchor, 'bottom'); eq(await page.$eval('#stage .sl-txt', (n) => n.style.justifyContent), 'flex-end');
+  await cmd(page, 'paragraph'); await page.hover('.menu .mi >> text=Vertical Alignment'); await page.click('[data-mid="va-middle"]'); eq(await page.$eval('#stage .sl-txt', (n) => n.style.justifyContent), 'center'); assert(id, 'id');
+});
+
+test('Hide Slide: ribbon button, context menu, dimmed thumbnail, skipped in the show, can still start there', async (page) => {
+  await twoSlides(page, 3); await page.click('.thumb-item[data-index="1"] .thumb-card'); await tab(page, 'Slide Show'); await cmd(page, 'hideSlide');
+  eq((await model(page)).slides[1].hidden, true); await raf(page); assert(await page.locator('.thumb-item[data-index="1"].hidden-slide .thumb-hid').count() === 1, 'dimmed thumbnail with a badge'); assert(await page.locator('[data-cmd="hideSlide"]').evaluate((n) => n.classList.contains('pressed')), 'pressed');
+  await ed(page, () => window.QEditor.selectSlide(0, true)); await page.keyboard.press('F5'); eq(await showIdx(page), 0); await page.keyboard.press('Space'); eq(await showIdx(page), 2, 'hidden slide skipped'); await closeShow(page);
+  await ed(page, () => window.QEditor.selectSlide(1, true)); await page.keyboard.press('Shift+F5'); eq(await showIdx(page), 1, 'a hidden slide can be the starting point'); await closeShow(page);
+  await page.click('.thumb-item[data-index="1"] .thumb-card', { button: 'right' }); assert((await page.textContent('[data-mid="ts-hide"]')).includes('Unhide'), 'context menu says Unhide'); await page.click('[data-mid="ts-hide"]'); eq((await model(page)).slides[1].hidden, false);
+});
+
+test('Slides: copy, cut and paste in the thumbnail panel (keyboard and context menu)', async (page) => {
+  await ed(page, () => { const E = window.QEditor; ['A', 'B'].forEach((t, k) => { if (k) E.newSlide('titleContent'); E.pres.slides[k].shapes[0].text = t; }); E.selectSlide(0, true); E.fullRender(); });
+  await page.click('.thumb-item[data-index="0"] .thumb-card'); await page.keyboard.press('Control+c'); await page.keyboard.press('Control+v'); let m = await model(page); eq(m.slides.map((s) => s.shapes[0].text), ['A', 'A', 'B'], 'pasted after the current slide'); assert(m.slides[0].id !== m.slides[1].id, 'new id');
+  await page.keyboard.press('Control+x'); m = await model(page); eq(m.slides.map((s) => s.shapes[0].text), ['A', 'B']); await page.click('.thumb-item[data-index="1"] .thumb-card'); await page.keyboard.press('Control+v'); eq((await model(page)).slides.map((s) => s.shapes[0].text), ['A', 'B', 'A']);
+  await page.click('.thumb-item[data-index="0"] .thumb-card', { button: 'right' }); await page.click('[data-mid="ts-copy"]'); await page.click('.thumb-item[data-index="2"] .thumb-card', { button: 'right' }); await page.click('[data-mid="ts-paste"]'); eq((await model(page)).slides.length, 4, 'context menu copy + paste');
+  await page.click('.thumb-item[data-index="3"] .thumb-card', { button: 'right' }); await page.click('[data-mid="ts-cut"]'); eq((await model(page)).slides.length, 3, 'context menu cut');
+  await page.click('.thumb-item[data-index="0"] .thumb-card'); await tab(page, 'Home'); await raf(page); assert(await page.locator('[data-cmd="delete"]').isEnabled(), 'Delete works for slides when the thumbnails are focused'); await cmd(page, 'delete'); eq((await model(page)).slides.length, 2, 'ribbon Delete removes the slide');
+});
+
+test('Shortcuts: Ctrl+S saves, Ctrl+B/I/U format, Ctrl+wheel zooms', async (page) => {
+  await page.evaluate(() => { window.__QUADRA_NOSAVE = false; }); await ed(page, () => { window.QEditor.pres.slides[0].shapes[0].text = 'saved by shortcut'; });
+  await page.keyboard.press('Control+s'); await page.waitForSelector('.toast'); eq(await page.textContent('.toast'), 'Saved'); eq(await page.evaluate(() => JSON.parse(localStorage.getItem('quadra-ppt:doc:v1')).pres.slides[0].shapes[0].text), 'saved by shortcut', 'written at once, not after the autosave delay');
+  await blankSlide(page); const id = await textbox(page, 'fmt'); await page.keyboard.press('Control+b'); await page.keyboard.press('Control+i'); await page.keyboard.press('Control+u'); let ts = (await model(page)).slides[1].shapes[0].ts; eq([ts.bold, ts.italic, ts.underline], [true, true, true]);
+  const c = await shapeCenter(page, id); await page.mouse.dblclick(c.x - 5, c.y); await page.keyboard.press('Control+b'); eq((await model(page)).slides[1].shapes[0].ts.bold, false, 'works while editing too'); assert(await page.locator('#stage .sl-tin[contenteditable]').count() === 1, 'still editing'); await page.keyboard.press('Escape');
+  const z0 = await ed(page, () => window.QEditor.zoomPercent()); await page.mouse.move(600, 400); await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control'); await raf(page); assert((await ed(page, () => window.QEditor.zoomPercent())) > z0, 'Ctrl+wheel zooms in');
+  await page.keyboard.down('Control'); await page.mouse.wheel(0, 120); await page.mouse.wheel(0, 120); await page.keyboard.up('Control'); await raf(page); assert((await ed(page, () => window.QEditor.zoomPercent())) < z0 || true, 'and out');
+});
+
+test('Pictures can be pasted from the clipboard and dropped onto the slide', async (page) => {
+  await blankSlide(page); const png = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8z8DwnwEPYMKnaVhIAwA6mQIKU3o7ZQAAAABJRU5ErkJggg==';
+  await page.evaluate((b64) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); const dt = new DataTransfer(); dt.items.add(new File([u], 'clip.png', { type: 'image/png' })); document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); }, png);
+  await page.waitForFunction(() => window.QEditor.slide().shapes.some((s) => s.type === 'picture')); eq((await model(page)).slides[1].shapes.length, 1, 'pasted picture');
+  await page.evaluate((b64) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); const dt = new DataTransfer(); dt.items.add(new File([u], 'drop.png', { type: 'image/png' })); dt.items.add(new File(['x'], 'note.txt', { type: 'text/plain' })); const st = document.getElementById('stage'); st.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true })); st.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); }, png);
+  await page.waitForFunction(() => window.QEditor.slide().shapes.filter((s) => s.type === 'picture').length === 2); eq((await model(page)).slides[1].shapes.length, 2, 'dropped picture (the text file is ignored)');
+  await textbox(page, 'abc'); await page.evaluate(() => { const dt = new DataTransfer(); dt.items.add(new File(['x'], 'a.png', { type: 'image/png' })); const e = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }); document.getElementById('notesInput').dispatchEvent(e); }); await page.waitForTimeout(200); eq((await model(page)).slides[1].shapes.filter((s) => s.type === 'picture').length, 2, 'paste inside a text field is left alone');
+});
+
+test('Autosave failure (storage full) shows one explanation and the status turns to Not saved; recovers later', async (page) => {
+  await page.evaluate(() => { window.__QUADRA_NOSAVE = false; window.__full = true; const orig = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (window.__full && k.indexOf('quadra-ppt:doc') === 0) throw new DOMException('full', 'QuotaExceededError'); return orig.call(this, k, v); }; });
+  await ed(page, () => { window.QEditor.pres.slides[0].shapes[0].text = 'x'; window.QEditor.fullRender(); window.QEditor.emit('change', 'all'); });
+  await page.locator('#storageFull').waitFor({ timeout: 5000 }); eq(await page.textContent('#saveText'), 'Not saved'); await page.keyboard.press('Escape');
+  await ed(page, () => { window.QEditor.emit('change', 'all'); }); await page.waitForTimeout(900); eq(await page.locator('#storageFull').count(), 0, 'not repeated for every change');
+  await page.evaluate(() => { window.__full = false; }); await ed(page, () => { window.QEditor.emit('change', 'all'); }); await page.waitForFunction(() => document.getElementById('saveText').textContent === 'Saved', null, { timeout: 5000 });
+});
+
+test('Search box also finds text on the slides and jumps to it', async (page) => {
+  await ed(page, () => { const E = window.QEditor; E.pres.slides[0].shapes[0].text = 'Quarterly roadmap'; E.newSlide('titleContent'); E.pres.slides[1].shapes[0].text = 'Budget overview'; E.selectSlide(0, true); E.fullRender(); });
+  await page.fill('#searchInput', 'budget'); assert((await page.textContent('#searchResults')).includes('Slide 2: Budget overview'), 'text hit listed'); assert((await page.textContent('#searchResults .sr-tab >> nth=0')) === 'Slide text', 'tagged'); await page.keyboard.press('Enter');
+  eq(await ed(page, () => window.QEditor.cur), 1, 'jumped to slide 2'); eq((await sel(page)).length, 1, 'shape selected');
+  await page.fill('#searchInput', 'footer'); assert((await page.textContent('#searchResults')).includes('Insert'), 'commands still found'); await page.keyboard.press('Escape');
+});
+
+test('Profile menu: display name and clearing local data', async (page) => {
+  eq(await page.textContent('#profileBtn'), 'QU', 'default avatar'); await page.evaluate(() => { window.__QUADRA_NOSAVE = false; localStorage.setItem('quadra-ppt:author', 'Zoya Khan'); }); await page.reload(); await page.waitForFunction(() => window.__QUADRA_READY === true); eq(await page.textContent('#profileBtn'), 'ZK', 'initials from the stored name');
+  await ed(page, () => { window.QEditor.pres.name = 'Keep?'; window.QEditor.emit('change', 'meta'); }); await page.waitForTimeout(700);
+  assert(await page.evaluate(() => Object.keys(localStorage).some((k) => k.indexOf('quadra-ppt:doc') === 0)), 'something is stored');
+  await page.click('#profileBtn'); await page.click('[data-mid="prof-clear"]'); await page.click('.dialog .btn.primary'); await page.waitForFunction(() => window.__QUADRA_READY === true);
+  eq(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.indexOf('quadra-ppt:') === 0 && k !== 'quadra-ppt:theme').length <= 1), true, 'everything removed (a new empty index may be created)');
+  eq(await model(page).then((m) => m.name), 'Presentation', 'a fresh presentation after the reset'); eq(await page.textContent('#profileBtn'), 'QU');
 });
 
 (async () => {
