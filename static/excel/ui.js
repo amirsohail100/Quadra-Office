@@ -70,15 +70,27 @@
     ["TRIM", "Text", "Removes extra spaces from text"],
     ["LEFT", "Text", "Leftmost characters of text"],
     ["RIGHT", "Text", "Rightmost characters of text"],
-    ["MID", "Text", "Characters from the middle of text"]
+    ["MID", "Text", "Characters from the middle of text"],
+    ["PMT", "Financial", "Payment for a loan with a fixed rate"],
+    ["TODAY", "Date & Time", "Today's date as a serial number"],
+    ["NOW", "Date & Time", "Current date and time as a serial number"],
+    ["DATE", "Date & Time", "Serial number for a year, month and day"],
+    ["YEAR", "Date & Time", "Year of a date serial number"],
+    ["MONTH", "Date & Time", "Month of a date serial number"],
+    ["DAY", "Date & Time", "Day of a date serial number"],
+    ["VLOOKUP", "Lookup & Reference", "Looks up a value in the first column of a range"],
+    ["HLOOKUP", "Lookup & Reference", "Looks up a value in the first row of a range"],
+    ["INDEX", "Lookup & Reference", "Value at a row and column of a range"],
+    ["MATCH", "Lookup & Reference", "Position of a value in a range"]
   ];
 
   // ---------- Small helpers ----------
   let core = null;
   let currentTab = "Home";
   const wrap = document.getElementById("gridWrap");
-  // Grid geometry; must match the constants at the top of script.js
-  const HDR_W = 40, HDR_H = 20, COL_W = 64, ROW_H = 20;
+  // Grid geometry comes from the grid (it changes with zoom). Print pages always use 100% sizes.
+  const geo = () => core.geom();
+  const BASE = { COL_W: 64, ROW_H: 20 };
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const ic = (name, cls) => `<svg class="${cls || "ic"}"><use href="#i-${name}"/></svg>`;
@@ -281,7 +293,8 @@
         stk(sm("saveView", "Save", "save"), sm("newView", "New", "newFile"), sm("viewOptions", "Options", "options"))),
       grp("Zoom",
         stk(sel("zoomSel", null, [["100", "100%"], ["75", "75%"], ["50", "50%"], ["150", "150%"]], 92), sm("zoom100", "100%", "zoom100")),
-        bg("zoom", "Zoom", "zoom")),
+        bg("zoom", "Zoom", "zoom"),
+        bg("zoomSelection", "Zoom to Selection", "zoom")),
       grp("Window",
         bg("newWindow", "New Window", "newWindow"),
         bg("", "Freeze Panes", "freeze", { menu: "freeze" }),
@@ -430,15 +443,23 @@
       { label: "Reset All Page Breaks", cmd: "breaks", val: "reset" }
     ],
     background: [{ label: "Choose a picture…", cmd: "background", val: "insert" }, { label: "Remove Background", cmd: "background", val: "remove" }],
+    zoomMenu: [
+      { label: "400%", cmd: "zoomPct", val: 400 }, { label: "200%", cmd: "zoomPct", val: 200 },
+      { label: "150%", cmd: "zoomPct", val: 150 }, { label: "100%", cmd: "zoomPct", val: 100 },
+      { label: "75%", cmd: "zoomPct", val: 75 }, { label: "50%", cmd: "zoomPct", val: 50 },
+      { label: "25%", cmd: "zoomPct", val: 25 }, { sep: true },
+      { label: "Zoom to Selection", cmd: "zoomSelection" }
+    ],
     themes: [{ label: "Office", cmd: "themeOffice" }],
-    calcOptions: [{ label: "Automatic", cmd: "calcBook" }, { label: "Manual", cmd: "calcManual" }],
-    getData: [{ label: "From Text/CSV", cmd: "fromText" }, { label: "From Web", cmd: "fromWeb" }, { label: "From Access", cmd: "fromAccess" }],
+    calcOptions: [{ label: "Automatic", cmd: "calcAuto" }, { label: "Manual", cmd: "calcManual" }],
+    getData: [{ label: "From Text/CSV…", cmd: "fromText" }, { label: "From Web", cmd: "fromWeb" }, { label: "From Access", cmd: "fromAccess" }],
     refresh: [{ label: "Refresh", cmd: "refreshAll" }, { label: "Refresh All", cmd: "refreshAll" }],
     dataTypes: [{ label: "Stocks", cmd: "dataTypes" }, { label: "Geography", cmd: "dataTypes" }],
-    dataTools: [{ label: "Remove Duplicates", cmd: "removeDuplicates" }, { label: "Data Validation", cmd: "dataValidation" },
-      { label: "Consolidate", cmd: "consolidate" }, { label: "Relationships", cmd: "relationships" }],
-    whatIf: [{ label: "Goal Seek", cmd: "goalSeek" }, { label: "Scenario Manager", cmd: "scenarios" }, { label: "Data Table", cmd: "dataTable" }],
-    outline: [{ label: "Group", cmd: "group" }, { label: "Ungroup", cmd: "ungroup" }, { label: "Subtotal", cmd: "subtotal" }],
+    dataTools: [{ label: "Remove Duplicates", cmd: "removeDuplicates" }, { label: "Text to Columns…", cmd: "textToColumns" },
+      { label: "Data Validation…", cmd: "dataValidation" }, { label: "Consolidate", cmd: "consolidate" },
+      { label: "Relationships", cmd: "relationships" }],
+    whatIf: [{ label: "Goal Seek…", cmd: "goalSeek" }, { label: "Scenario Manager", cmd: "scenarios" }, { label: "Data Table", cmd: "dataTable" }],
+    outline: [{ label: "Group", cmd: "group" }, { label: "Ungroup", cmd: "ungroup" }, { label: "Subtotal…", cmd: "subtotal" }],
     freeze: [{ label: "Freeze Panes", cmd: "freezePanes" }, { label: "Freeze Top Row", cmd: "freezeTop" }, { label: "Freeze First Column", cmd: "freezeFirst" }],
     sheetView: [{ label: "Default", cmd: "sheetViewDefault" }, { label: "Custom Views…", cmd: "customViews" }],
     access: [{ label: "Check Accessibility", cmd: "accessibilityCheck" }],
@@ -475,7 +496,10 @@
     const r = anchor.getBoundingClientRect();
     const menu = root.firstElementChild;
     menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 280)) + "px";
-    menu.style.top = Math.min(r.bottom + 4, window.innerHeight - 40) + "px";
+    // open below the button, or above it when there is no room below (status bar and bottom buttons)
+    const h = menu.offsetHeight;
+    const top = r.bottom + 4 + h > window.innerHeight ? Math.max(8, r.top - h - 4) : r.bottom + 4;
+    menu.style.top = top + "px";
   }
 
   function openNamedMenu(name, anchor) {
@@ -550,8 +574,7 @@
       ["Ctrl+C / Ctrl+X / Ctrl+V", "Copy, cut, paste"], ["Ctrl+Z / Ctrl+Y", "Undo, redo"],
       ["Ctrl+B / Ctrl+I / Ctrl+U", "Bold, italic, underline"], ["Ctrl+D", "Fill down"],
       ["Ctrl+F", "Find"], ["Ctrl+S", "Download a copy of the workbook"], ["Ctrl+A", "Select all"],
-      ["F2", "Edit the active cell"], ["Enter / Tab", "Move to the next cell"], ["Delete", "Clear values"],
-      ["Alt+Q", "Focus the command search"]
+      ["F2", "Edit the active cell"], ["Enter / Tab", "Move to the next cell"], ["Delete", "Clear values"]
     ]);
   }
 
@@ -559,11 +582,7 @@
     showList("Function List", FUNCS.map((f) => [f[0], f[2]]));
   }
 
-  function showHelp() {
-    dialog("Help", `<p>Quadra Office works like a spreadsheet. Type in a cell, or pick a command from the ribbon.</p>
-      <p>Formulas start with <b>=</b>, for example <code>=SUM(A1:A10)</code>. Use the Formulas tab to browse functions.</p>
-      <p>Your workbook is saved automatically in this browser.</p>`, [{ label: "Close", primary: true }]);
-  }
+  function showHelp() { openHelp(); }
 
   function showWhatsNew() {
     dialog("What's New", `<ul><li>Ribbon redesigned with separate tabs.</li><li>Dark mode switch in the title bar.</li>
@@ -857,17 +876,17 @@
   const objects = [];
   function placeObject(o) {
     const sel = core.sel;
-    objects.push({ ...o, x: HDR_W + sel.ac * COL_W + 24, y: HDR_H + sel.ar * ROW_H + 24 });
+    objects.push({ ...o, x: geo().HDR_W + sel.ac * geo().COL_W + 24, y: geo().HDR_H + sel.ar * geo().ROW_H + 24 });
     redrawInk();
   }
 
   function drawObjects(ctx, sx, sy, W, H) {
     const pal = core.pal;
     ctx.save();
-    ctx.beginPath(); ctx.rect(HDR_W, HDR_H, W - HDR_W, H - HDR_H); ctx.clip();
+    ctx.beginPath(); ctx.rect(geo().HDR_W, geo().HDR_H, W - geo().HDR_W, H - geo().HDR_H); ctx.clip();
     for (const o of objects) {
       const x = o.x - sx, y = o.y - sy;
-      if (x > W || y > H || x + o.w < HDR_W || y + o.h < HDR_H) continue;
+      if (x > W || y > H || x + o.w < geo().HDR_W || y + o.h < geo().HDR_H) continue;
       ctx.save();
       if (o.rot) {
         ctx.translate(x + o.w / 2, y + o.h / 2);
@@ -1141,27 +1160,15 @@
     else core.toast("Accounts are not available in this local version");
   }
 
-  // ---------- Search (command finder) ----------
-  function allCommands() {
-    const out = [];
-    const walk = (items, tab) => {
-      for (const x of items) {
-        if (x.items) walk(x.items, tab);
-        else if ((x.kind === "bg" || x.kind === "sm") && x.label && !x.disabled) {
-          out.push({ label: x.label, cmd: x.cmd, val: x.val, menu: x.menu, hint: tab });
-        }
-      }
-    };
-    for (const [tab, groups] of Object.entries(TABS)) for (const g of groups) walk(g.items, tab);
-    return out;
-  }
-
-  function runSearch(q) {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return closeFloating();
-    const hits = allCommands().filter((c) => c.label.toLowerCase().includes(needle)).slice(0, 12);
-    if (!hits.length) return showPop($("searchBox"), [{ label: "No commands match \"" + q + "\"", disabled: true }]);
-    showPop($("searchBox"), hits.map((h) => ({ label: h.label, cmd: h.cmd, val: h.val, menu: h.menu, hint: h.hint })));
+  // ---------- Sheet tabs ----------
+  let tabsKey = "";
+  function renderSheetTabs(force) {
+    const list = core.sheetList();
+    const key = JSON.stringify(list);
+    if (!force && key === tabsKey) return;
+    tabsKey = key;
+    $("sheetTabs").innerHTML = list.map((x, i) =>
+      `<button class="sheet-tab${x.active ? " active" : ""}" data-sheet="${i}" title="Double-click to rename">${esc(x.name)}</button>`).join("");
   }
 
   // ---------- Status bar: selection statistics ----------
@@ -1312,9 +1319,10 @@
       else draw.cur.pts.push(p);
       redrawInk();
     });
-    const end = () => { draw.cur = null; };
+    const end = () => { draw.cur = null; saveInk(); };
     draw.layer.addEventListener("pointerup", end);
     draw.layer.addEventListener("pointercancel", end);
+    loadInk();
     sizeDrawLayer();
     window.addEventListener("resize", sizeDrawLayer);
   }
@@ -1457,15 +1465,15 @@
     let scale = pageSetup.scale / 100;
     if (pageSetup.fitW || pageSetup.fitH) {
       let fs = 1;
-      if (pageSetup.fitW) fs = Math.min(fs, availW / ((area.c2 - area.c1 + 1) * COL_W));
-      if (pageSetup.fitH) fs = Math.min(fs, availH / ((area.r2 - area.r1 + 1) * ROW_H));
+      if (pageSetup.fitW) fs = Math.min(fs, availW / ((area.c2 - area.c1 + 1) * BASE.COL_W));
+      if (pageSetup.fitH) fs = Math.min(fs, availH / ((area.r2 - area.r1 + 1) * BASE.ROW_H));
       scale = fs;
     }
     const cellW = availW / scale, cellH = availH / scale;
     const titleRows = [];
     for (let r = 0; r < Math.min(pageSetup.titles || 0, 50); r++) titleRows.push(r);
     const bodyStart = Math.max(area.r1, titleRows.length);
-    const perPage = Math.max(1, Math.floor(cellH / ROW_H) - titleRows.length);
+    const perPage = Math.max(1, Math.floor(cellH / BASE.ROW_H) - titleRows.length);
     const starts = [bodyStart];
     for (const b of [...pageSetup.breaks].sort((a, b) => a - b)) if (b > bodyStart && b <= area.r2 && b !== starts[starts.length - 1]) starts.push(b);
     const rowBlocks = [];
@@ -1473,7 +1481,7 @@
       const to = i + 1 < starts.length ? starts[i + 1] - 1 : area.r2;
       for (let s = from; s <= to; s += perPage) rowBlocks.push([s, Math.min(to, s + perPage - 1)]);
     });
-    const colsPer = Math.max(1, Math.floor(cellW / COL_W));
+    const colsPer = Math.max(1, Math.floor(cellW / BASE.COL_W));
     const colBlocks = [];
     for (let c = area.c1; c <= area.c2; c += colsPer) colBlocks.push([c, Math.min(area.c2, c + colsPer - 1)]);
     const pages = [];
@@ -1497,7 +1505,7 @@
       const align = st.ha || (typeof v === "number" ? "right" : "left");
       const valign = { top: "top", middle: "middle" }[st.va] || "bottom";
       const border = st.border ? "1px solid #000" : grid ? "1px solid #c8c8c8" : "none";
-      const style = `width:${COL_W}px;height:${ROW_H}px;text-align:${align};vertical-align:${valign};` +
+      const style = `width:${BASE.COL_W}px;height:${BASE.ROW_H}px;text-align:${align};vertical-align:${valign};` +
         `border:${border};${fill ? `background:${fill};` : ""}${color ? `color:${color};` : ""}` +
         `${st.bold ? "font-weight:bold;" : ""}${st.italic ? "font-style:italic;" : ""}` +
         `${st.underline ? "text-decoration:underline;" : ""}font-size:${Math.round((st.size || 11) * 1.2)}px;` +
@@ -1663,6 +1671,805 @@
     }
   }
 
+  // ---------- Formulas and Data tabs ----------
+  const addr = (r, c) => engine().indexToCol(c) + (r + 1);
+  const rectAddr = (R) => addr(R.r1, R.c1) + (R.r1 === R.r2 && R.c1 === R.c2 ? "" : ":" + addr(R.r2, R.c2));
+  const validName = (n) => /^[A-Za-z_][A-Za-z0-9_.]*$/.test(n) && !/^[A-Za-z]{1,3}\d+$/.test(n) && !/^(TRUE|FALSE)$/i.test(n);
+  const parseAddr = (t) => {
+    const m = /^\s*\$?([A-Za-z]{1,3})\$?(\d+)\s*$/.exec(t || "");
+    return m ? { r: Number(m[2]) - 1, c: engine().colToIndex(m[1]) } : null;
+  };
+
+  function notAvailable(title, why) {
+    dialog(title, `<p>${esc(why)}</p>`, [{ label: "Close", primary: true }]);
+  }
+
+  function defineNameCmd() {
+    const R = core.range();
+    const name = prompt("Name for " + rectAddr(R) + ":", "");
+    if (name === null) return;
+    const n = name.trim();
+    if (!validName(n)) return core.toast("Names use letters, digits, _ or . and cannot look like a cell address");
+    core.defineName(n, R);
+    core.toast(`Defined ${n} = ${rectAddr(R)}`);
+  }
+
+  function nameManager() {
+    const list = core.getNames();
+    const rows = list.length
+      ? list.map(([n, R]) => `<tr><th>${esc(n)}</th><td>${esc(rectAddr(R))}</td><td><button class="btn" data-del="${esc(n)}">Delete</button></td></tr>`).join("")
+      : `<tr><td colspan="3">No names are defined yet. Select cells and use Define Name.</td></tr>`;
+    const d = dialog("Name Manager", `<table class="list">${rows}</table>`, [{ label: "Close", primary: true }]);
+    d.el.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-del]");
+      if (!b) return;
+      core.deleteName(b.dataset.del);
+      d.close();
+      nameManager();
+    });
+  }
+
+  function useInFormula() {
+    const list = core.getNames();
+    if (!list.length) return core.toast("Define a name first");
+    const d = dialog("Use in Formula",
+      `<p>Choose a name to put in the active cell:</p>${list.map(([n, R]) =>
+        `<button class="fn-item" data-name="${esc(n)}"><b>${esc(n)}</b><span>${esc(rectAddr(R))}</span></button>`).join("")}`,
+      [{ label: "Cancel" }]);
+    d.el.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-name]");
+      if (!b) return;
+      d.close();
+      core.openEditor("=" + b.dataset.name);
+    });
+  }
+
+  function createFromSelection() {
+    const R = core.range();
+    if (R.r2 === R.r1) return core.toast("Select a header row and the data below it");
+    const made = [];
+    for (let c = R.c1; c <= R.c2; c++) {
+      let n = core.displayText(core.cellValue(R.r1, c), {}).trim().replace(/[^A-Za-z0-9_.]+/g, "_").replace(/^(\d)/, "_$1");
+      if (!n || !validName(n)) continue;
+      core.defineName(n, { r1: R.r1 + 1, c1: c, r2: R.r2, c2: c });
+      made.push(n);
+    }
+    core.toast(made.length ? "Created names: " + made.join(", ") : "The top row has no usable header text");
+  }
+
+  function tracePrecedents() {
+    const cell = core.getCell(core.sel.ar, core.sel.ac);
+    const refs = cell ? engine().referencesOf(cell.v) : [];
+    if (!refs.length) return core.toast("The active cell has no references to trace");
+    core.setExtras(refs);
+    core.toast(`${refs.length} precedent range(s) highlighted. Remove Arrows clears them.`);
+  }
+
+  function traceDependents() {
+    const tr = core.sel.ar, tc = core.sel.ac;
+    const hits = [];
+    for (const k of core.cells.keys()) {
+      const [r, c] = k.split(",").map(Number);
+      const cell = core.getCell(r, c);
+      if (!cell || cell.v[0] !== "=") continue;
+      if (engine().referencesOf(cell.v).some((R) => tr >= R.r1 && tr <= R.r2 && tc >= R.c1 && tc <= R.c2)) {
+        hits.push({ r1: r, c1: c, r2: r, c2: c });
+      }
+    }
+    if (!hits.length) return core.toast("No formula uses the active cell");
+    core.setExtras(hits);
+    core.toast(`${hits.length} dependent cell(s) highlighted. Remove Arrows clears them.`);
+  }
+
+  function errorChecking() {
+    const E = engine();
+    const errs = [];
+    for (const k of core.cells.keys()) {
+      const [r, c] = k.split(",").map(Number);
+      const v = core.cellValue(r, c);
+      if (E.isError(v)) errs.push({ r, c, code: v.code });
+    }
+    errs.sort((a, b) => a.r - b.r || a.c - b.c);
+    const body = errs.length
+      ? `<table class="list">${errs.map((e, i) => `<tr><th>${addr(e.r, e.c)}</th><td>${esc(e.code)}</td>` +
+          `<td><button class="btn" data-go="${i}">Go to</button></td></tr>`).join("")}</table>`
+      : "<p>No errors found on this sheet.</p>";
+    const d = dialog("Error Checking", body, [{ label: "Close", primary: true }]);
+    d.el.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-go]");
+      if (!b) return;
+      const hit = errs[+b.dataset.go];
+      d.close();
+      core.goTo(hit.r, hit.c);
+    });
+  }
+
+  function evaluateFormula() {
+    const cell = core.getCell(core.sel.ar, core.sel.ac);
+    if (!cell || cell.v[0] !== "=") return core.toast("Select a cell that contains a formula");
+    const steps = engine().substituteRefs(cell.v, (r, c) => core.cellValue(r, c));
+    const shown = core.displayText(core.cellValue(core.sel.ar, core.sel.ac), cell.s);
+    dialog("Evaluate Formula",
+      `<p>Formula: <code>${esc(cell.v)}</code></p>
+       <p>With the current values: <code>${esc(steps)}</code></p>
+       <p>Result: <b>${esc(shown)}</b></p>
+       <p class="note">Each reference is replaced by the value it holds. The whole formula is then calculated at once.</p>`,
+      [{ label: "Close", primary: true }]);
+  }
+
+  function setCalcMode(auto) {
+    core.setAutoCalc(auto);
+    core.toast(auto ? "Calculation: Automatic" : "Calculation: Manual. Use Calculate Sheet to update formulas.");
+  }
+
+  // Data > Get Data > From Text/CSV: reads a CSV file into the sheet from the active cell
+  function parseCsv(text) {
+    const rows = [];
+    let row = [], cell = "", quoted = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (quoted) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') { cell += '"'; i++; } else quoted = false;
+        } else cell += ch;
+      } else if (ch === '"') quoted = true;
+      else if (ch === ",") { row.push(cell); cell = ""; }
+      else if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+      else if (ch !== "\r") cell += ch;
+    }
+    if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+
+  function importCsv() {
+    if (core.isProtected()) return core.toast("Sheet is protected. Unprotect it to edit.");
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv,text/csv";
+    input.onchange = () => {
+      const file = input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const rows = parseCsv(String(reader.result));
+        const width = Math.max(0, ...rows.map((r) => r.length));
+        if (rows.length * width > 100000) return core.toast("This CSV file is too large for this version");
+        const r0 = core.sel.ar, c0 = core.sel.ac;
+        rows.forEach((row, i) => row.forEach((v, j) => core.setValue(r0 + i, c0 + j, v)));
+        core.goTo(r0, c0);
+        core.refresh();
+        core.toast(`Imported ${rows.length} row(s) from ${file.name}`);
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  }
+
+  function customSort() {
+    const R = core.range();
+    if (R.r2 === R.r1) return core.toast("Select a table first");
+    const cols = [];
+    for (let c = R.c1; c <= R.c2; c++) cols.push(c);
+    const headerOf = (c) => core.displayText(core.cellValue(R.r1, c), {}) || engine().indexToCol(c);
+    const opts = cols.map((c) => `<option value="${c}">${esc(headerOf(c))}</option>`).join("");
+    const d = dialog("Sort",
+      `<label class="chk"><input type="checkbox" id="csHeaders" checked /> My data has headers</label>
+       <label>Sort by<select id="csKey1">${opts}</select></label>
+       <label>Order<select id="csOrd1"><option value="asc">A to Z</option><option value="desc">Z to A</option></select></label>
+       <label>Then by<select id="csKey2"><option value="">(none)</option>${opts}</select></label>
+       <label>Order<select id="csOrd2"><option value="asc">A to Z</option><option value="desc">Z to A</option></select></label>`,
+      [{ label: "Cancel" },
+        { label: "Sort", primary: true, onClick: (el) => {
+          const keys = [{ c: Number(el.querySelector("#csKey1").value), asc: el.querySelector("#csOrd1").value === "asc" }];
+          const k2 = el.querySelector("#csKey2").value;
+          if (k2 !== "") keys.push({ c: Number(k2), asc: el.querySelector("#csOrd2").value === "asc" });
+          const headers = el.querySelector("#csHeaders").checked;
+          core.goTo(headers ? R.r1 + 1 : R.r1, R.c1, R.r2, R.c2);
+          core.sortByKeys(keys);
+          core.toast("Sorted");
+        } }]);
+    return d;
+  }
+
+  function dataValidation() {
+    dialog("Data Validation",
+      `<label>Allow
+         <select id="dvType"><option value="any">Any value</option><option value="list">List</option>
+           <option value="number">Number between</option></select></label>
+       <label>List items (separated by commas)<input id="dvList" type="text" /></label>
+       <label>Minimum<input id="dvMin" type="number" /></label>
+       <label>Maximum<input id="dvMax" type="number" /></label>
+       <label>Error message<input id="dvMsg" type="text" /></label>
+       <p class="note">Typed values that break the rule are refused while you type. Pasted values are not checked.</p>`,
+      [{ label: "Cancel" },
+        { label: "OK", primary: true, onClick: (el) => {
+          const type = el.querySelector("#dvType").value;
+          const message = el.querySelector("#dvMsg").value.trim() || undefined;
+          if (type === "any") return core.setValidation(null);
+          if (type === "list") {
+            const list = el.querySelector("#dvList").value.split(",").map((x) => x.trim()).filter(Boolean);
+            if (!list.length) { core.toast("Enter at least one list item"); return false; }
+            return core.setValidation({ type: "list", list, message });
+          }
+          const mn = el.querySelector("#dvMin").value, mx = el.querySelector("#dvMax").value;
+          core.setValidation({ type: "number", min: mn === "" ? undefined : Number(mn), max: mx === "" ? undefined : Number(mx), message });
+        } }]);
+  }
+
+  function textToColumns() {
+    const R = core.range();
+    dialog("Text to Columns",
+      `<label>Separator
+         <select id="ttDelim"><option value=",">Comma</option><option value=";">Semicolon</option>
+           <option value="\t">Tab</option><option value=" ">Space</option></select></label>
+       <p class="note">The text in the first column of the selection is split into the columns to its right.</p>`,
+      [{ label: "Cancel" },
+        { label: "OK", primary: true, onClick: (el) => {
+          if (core.isProtected()) return core.toast("Sheet is protected. Unprotect it to edit.");
+          const delim = el.querySelector("#ttDelim").value;
+          let changed = 0;
+          for (let r = R.r1; r <= R.r2; r++) {
+            const text = core.displayText(core.cellValue(r, R.c1), {});
+            if (!text.includes(delim)) continue;
+            text.split(delim).forEach((part, j) => { core.setValue(r, R.c1 + j, part.trim()); });
+            changed++;
+          }
+          core.refresh();
+          core.toast(changed ? `Split ${changed} row(s)` : "No separator found in the first column");
+        } }]);
+  }
+
+  // Goal Seek: finds the value of one cell that makes another cell reach a target (bisection)
+  function goalSeek() {
+    const d = dialog("Goal Seek",
+      `<label>Set cell<input id="gsSet" type="text" value="${esc(addr(core.sel.ar, core.sel.ac))}" /></label>
+       <label>To value<input id="gsTo" type="number" value="0" /></label>
+       <label>By changing cell<input id="gsBy" type="text" placeholder="for example B2" /></label>`,
+      [{ label: "Cancel" },
+        { label: "Seek", primary: true, onClick: (el) => {
+          const set = parseAddr(el.querySelector("#gsSet").value);
+          const by = parseAddr(el.querySelector("#gsBy").value);
+          const target = Number(el.querySelector("#gsTo").value);
+          if (!set || !by || !Number.isFinite(target)) { core.toast("Enter two cell addresses and a number"); return false; }
+          runGoalSeek(set, by, target);
+        } }]);
+    return d;
+  }
+
+  function runGoalSeek(set, by, target) {
+    const base = core.historyLength();
+    const original = core.getCell(by.r, by.c) ? core.getCell(by.r, by.c).v : "";
+    const f = (x) => {
+      core.setValue(by.r, by.c, String(x));
+      core.calcNow();
+      const v = core.cellValue(set.r, set.c);
+      return typeof v === "number" ? v - target : NaN;
+    };
+    const restore = () => { core.setValue(by.r, by.c, original); core.calcNow(); core.trimHistory(base); };
+    // Look for a sign change on a geometric grid (1e-6 .. 1e6, both signs), then bisect inside it
+    const grid = [];
+    for (let k = -120; k <= 120; k++) grid.push(k === 0 ? 0 : Math.sign(k) * Math.pow(10, k / 20));
+    let lo = null, hi = null, flo = 0, fhi = 0, prevX = grid[0], prevF = f(prevX);
+    for (let i = 1; i < grid.length && lo === null; i++) {
+      const fx = f(grid[i]);
+      if (Number.isFinite(prevF) && Number.isFinite(fx) && prevF * fx <= 0) {
+        lo = prevX; hi = grid[i]; flo = prevF; fhi = fx;
+      }
+      prevX = grid[i]; prevF = fx;
+    }
+    if (lo === null) {
+      restore();
+      return core.toast("No solution found for values between -1,000,000 and 1,000,000");
+    }
+    for (let i = 0; i < 200; i++) {
+      const mid = (lo + hi) / 2, fm = f(mid);
+      if (!Number.isFinite(fm)) break;
+      if (Math.abs(fm) < 1e-9) { lo = hi = mid; break; }
+      if (flo * fm < 0) { hi = mid; fhi = fm; } else { lo = mid; flo = fm; }
+    }
+    const x = Number(((lo + hi) / 2).toPrecision(12));
+    restore();
+    core.setValue(by.r, by.c, String(x));
+    core.calcNow();
+    core.toast(`Goal seek: ${addr(by.r, by.c)} = ${x}`);
+  }
+
+  // Forecast Sheet: a straight-line trend through the x/y pairs, with three rows added below the data
+  function forecastSheet() {
+    const R = core.range();
+    if (R.c2 - R.c1 < 1 || R.r2 - R.r1 < 2) return core.toast("Select an x column and a y column with a header row");
+    const xs = [], ys = [];
+    for (let r = R.r1 + 1; r <= R.r2; r++) {
+      const x = core.cellValue(r, R.c1), y = core.cellValue(r, R.c1 + 1);
+      if (typeof x === "number" && typeof y === "number") { xs.push(x); ys.push(y); }
+    }
+    if (xs.length < 2) return core.toast("Need at least two rows with numbers in both columns");
+    const n = xs.length, mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) { num += (xs[i] - mx) * (ys[i] - my); den += (xs[i] - mx) ** 2; }
+    const slope = den ? num / den : 0, intercept = my - slope * mx;
+    const step = n > 1 ? (xs[n - 1] - xs[n - 2]) || 1 : 1;
+    const top = R.r2 + 2;
+    core.setValue(top, R.c1, "Forecast x");
+    core.setValue(top, R.c1 + 1, "Forecast y");
+    core.getOrCreate(top, R.c1).s.bold = true;
+    core.getOrCreate(top, R.c1 + 1).s.bold = true;
+    for (let k = 1; k <= 3; k++) {
+      const x = xs[n - 1] + k * step;
+      core.setValue(top + k, R.c1, String(x));
+      core.setValue(top + k, R.c1 + 1, String(Number((intercept + slope * x).toPrecision(10))));
+    }
+    core.refresh();
+    core.toast("Forecast added below the data (straight-line trend)");
+  }
+
+  // Data > Outline > Subtotal: adds a Total row under each group (groups are the runs of equal values in the first column)
+  function subtotal() {
+    const R = core.range();
+    if (R.r2 - R.r1 < 2) return core.toast("Select a header row and at least two data rows");
+    if (core.isProtected()) return core.toast("Sheet is protected. Unprotect it to edit.");
+    const key = (r) => core.displayText(core.cellValue(r, R.c1), {});
+    const groups = [];
+    let start = R.r1 + 1;
+    for (let r = R.r1 + 2; r <= R.r2 + 1; r++) {
+      if (r > R.r2 || key(r) !== key(start)) { groups.push([start, r - 1]); start = r; }
+    }
+    for (const [g1, g2] of groups.slice().reverse()) {
+      const at = g2 + 1;
+      core.goTo(at, R.c1);
+      core.editLines("row", false);
+      core.setValue(at, R.c1, "Total " + key(g1));
+      core.getOrCreate(at, R.c1).s.bold = true;
+      for (let c = R.c1 + 1; c <= R.c2; c++) {
+        let any = false;
+        for (let r = g1; r <= g2; r++) if (typeof core.cellValue(r, c) === "number") any = true;
+        if (any) {
+          const col = engine().indexToCol(c);
+          core.setValue(at, c, `=SUM(${col}${g1 + 1}:${col}${g2 + 1})`);
+        }
+      }
+    }
+    core.goTo(R.r1, R.c1, R.r2 + groups.length, R.c2);
+    core.refresh();
+    core.toast(`Added ${groups.length} subtotal row(s)`);
+  }
+
+  const NOT_HERE = {
+    fromWeb: ["From Web", "Importing from a web page needs an internet connection and a data service. This version does not include one."],
+    fromAccess: ["From Access", "Access databases need a desktop connection to the database file. This version does not include that."],
+    queries: ["Queries & Connections", "Queries need an external data source. This version works with the sheet and CSV files only."],
+    workbookLinks: ["Workbook Links", "Links to other workbooks are not available in this version."],
+    recentSources: ["Recent Sources", "Recent sources lists external data connections, which this version does not have."],
+    dataTypes: ["Data Types", "Stocks and geography data types need an online data service, which this version does not include."],
+    scenarios: ["Scenario Manager", "Scenario Manager saves sets of input values. It is not available in this version."],
+    dataTable: ["Data Table", "What-if data tables are not available in this version. Use Goal Seek for a single value."],
+    consolidate: ["Consolidate", "Consolidate combines several ranges by their labels. It is not available in this version."],
+    relationships: ["Relationships", "Relationships and the data model need Power Pivot, which this version does not include."],
+    filter: ["Filter", "Filtering hides rows. The grid cannot hide rows yet, so Filter is not available in this version."],
+    group: ["Group", "Grouping collapses rows. The grid cannot hide rows yet, so Group is not available in this version."],
+    ungroup: ["Ungroup", "Ungrouping needs grouped rows, which this version does not support yet."]
+  };
+
+  // Returns true when the command belongs to the Formulas or Data tab
+  function formulasAndData(cmd, val) {
+    if (NOT_HERE[cmd]) { notAvailable(NOT_HERE[cmd][0], NOT_HERE[cmd][1]); return true; }
+    switch (cmd) {
+      case "defineName": defineNameCmd(); return true;
+      case "nameManager": nameManager(); return true;
+      case "useInFormula": useInFormula(); return true;
+      case "createFromSelection": createFromSelection(); return true;
+      case "tracePrecedents": tracePrecedents(); return true;
+      case "traceDependents": traceDependents(); return true;
+      case "removeArrows": core.setExtras([]); core.toast("Arrows removed"); return true;
+      case "errorChecking": errorChecking(); return true;
+      case "evaluateFormula": evaluateFormula(); return true;
+      case "calcAuto": setCalcMode(true); return true;
+      case "calcManual": setCalcMode(false); return true;
+      case "calcBook": core.calcNow(); core.toast("All formulas calculated"); return true;
+      case "fromText": importCsv(); return true;
+      case "fromTable": core.run("table"); return true;
+      case "customSort": customSort(); return true;
+      case "reapply": core.reapplySort(); return true;
+      case "clearSort": core.toast("Nothing to clear: no filter is active"); return true;
+      case "dataValidation": dataValidation(); return true;
+      case "textToColumns": textToColumns(); return true;
+      case "goalSeek": goalSeek(); return true;
+      case "forecast": forecastSheet(); return true;
+      case "subtotal": subtotal(); return true;
+      default: return false;
+    }
+  }
+
+  // ---------- Review, View, Help and Draw ----------
+  const VER_KEY = "quadra.versions", VIEW_KEY = "quadra.views", INK_KEY = "quadra.ink";
+  const DEFAULT_VIEW = { zoom: 1, gridView: true, headingsView: true, formulaBar: true, focusCell: false };
+  const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+  let pausedProtect = false;
+
+  function updateZoomLabel() {
+    $("zoomLabel").textContent = Math.round(core.geom().zoom * 100) + "%";
+  }
+
+  function setZoomPct(p) {
+    const z = Math.max(0.25, Math.min(4, p / 100));
+    localStorage.setItem("quadra.zoom", String(z));
+    core.setZoom(z);
+    updateZoomLabel();
+    core.relayout();
+    core.toast("Zoom " + Math.round(z * 100) + "%");
+  }
+
+  function stepZoom(dir) {
+    const cur = core.geom().zoom;
+    const idx = ZOOM_STEPS.reduce((best, v, i) => (Math.abs(v - cur) < Math.abs(ZOOM_STEPS[best] - cur) ? i : best), 0);
+    const next = ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, idx + dir))];
+    setZoomPct(next * 100);
+  }
+
+  function zoomToSelection() {
+    const R = core.range();
+    const width = (R.c2 - R.c1 + 1) * 64;
+    const avail = wrap.clientWidth - 48;
+    setZoomPct(Math.max(25, Math.min(400, Math.floor((avail / width) * 100))));
+  }
+
+  function zoomPrompt() {
+    const p = prompt("Zoom percentage (25 to 400):", String(Math.round(core.geom().zoom * 100)));
+    if (p === null || !Number.isFinite(Number(p))) return;
+    setZoomPct(Number(p));
+  }
+
+  // Sheet views: zoom, gridlines, headings, formula bar and focus cell can be saved under a name
+  const currentView = () => ({
+    zoom: core.geom().zoom, gridView: core.sheetOpt.gridView, headingsView: core.sheetOpt.headingsView,
+    formulaBar: core.sheetOpt.formulaBar, focusCell: !!core.sheetOpt.focusCell
+  });
+  const savedViews = () => JSON.parse(localStorage.getItem(VIEW_KEY) || "[]");
+
+  function applyView(v) {
+    core.setZoom(v.zoom);
+    core.sheetOpt.gridView = v.gridView;
+    core.sheetOpt.headingsView = v.headingsView;
+    core.sheetOpt.formulaBar = v.formulaBar;
+    core.sheetOpt.focusCell = !!v.focusCell;
+    document.querySelector(".formula-bar").style.display = v.formulaBar ? "" : "none";
+    updateZoomLabel();
+    core.relayout();
+    core.refresh();
+    core.toast("View applied");
+  }
+
+  function saveViewPrompt() {
+    const name = prompt("Name for this view:", "View " + (savedViews().length + 1));
+    if (name === null || !name.trim()) return;
+    const list = savedViews().filter((v) => v.name !== name.trim());
+    list.push({ name: name.trim(), ...currentView() });
+    localStorage.setItem(VIEW_KEY, JSON.stringify(list));
+    core.toast("Saved view " + name.trim());
+  }
+
+  function customViews() {
+    const list = savedViews();
+    const rows = list.length
+      ? list.map((v, i) => `<tr><th>${esc(v.name)}</th><td>${Math.round(v.zoom * 100)}%</td>` +
+          `<td><button class="btn" data-apply="${i}">Apply</button> <button class="btn" data-drop="${i}">Delete</button></td></tr>`).join("")
+      : `<tr><td colspan="3">No saved views yet. Use Save to keep the current view.</td></tr>`;
+    const d = dialog("Custom Views", `<table class="list">${rows}</table>`,
+      [{ label: "Save current view", onClick: () => { saveViewPrompt(); return false; } }, { label: "Close", primary: true }]);
+    d.el.addEventListener("click", (e) => {
+      const a = e.target.closest("[data-apply]"), dr = e.target.closest("[data-drop]");
+      if (a) { d.close(); applyView(list[+a.dataset.apply]); }
+      if (dr) {
+        localStorage.setItem(VIEW_KEY, JSON.stringify(list.filter((_, i) => i !== +dr.dataset.drop)));
+        d.close();
+        customViews();
+      }
+    });
+  }
+
+  function navigation() {
+    const items = [];
+    for (const [name, R] of core.getNames()) items.push([`Name: ${name}`, `${rectAddr(R)}`, R]);
+    for (const k of core.cells.keys()) {
+      const [r, c] = k.split(",").map(Number);
+      const cell = core.getCell(r, c);
+      if (cell.comment) items.push(["Comment", `${addr(r, c)}: ${cell.comment}`, { r1: r, c1: c, r2: r, c2: c }]);
+      if (engine().isError(core.cellValue(r, c))) items.push(["Error", `${addr(r, c)}: ${core.cellValue(r, c).code}`, { r1: r, c1: c, r2: r, c2: c }]);
+    }
+    const body = items.length
+      ? `<table class="list">${items.slice(0, 300).map((it, i) => `<tr><th>${esc(it[0])}</th><td>${esc(it[1])}</td>` +
+          `<td><button class="btn" data-nav="${i}">Go</button></td></tr>`).join("")}</table>`
+      : "<p>Names, comments and errors will be listed here.</p>";
+    const d = dialog("Navigation", body, [{ label: "Close", primary: true }]);
+    d.el.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-nav]");
+      if (!b) return;
+      const R = items[+b.dataset.nav][2];
+      d.close();
+      core.goTo(R.r1, R.c1, R.r2, R.c2);
+    });
+  }
+
+  function immersiveReader() {
+    if (!("speechSynthesis" in window)) return core.toast("Reading aloud is not supported in this browser");
+    const R = core.range();
+    if ((R.r2 - R.r1 + 1) * (R.c2 - R.c1 + 1) > 2000) return core.toast("Select a smaller range to read");
+    const parts = [];
+    for (let r = R.r1; r <= R.r2; r++) {
+      for (let c = R.c1; c <= R.c2; c++) {
+        const cell = core.getCell(r, c);
+        const t = core.displayText(core.cellValue(r, c), cell ? cell.s : {});
+        if (t) parts.push(t);
+      }
+    }
+    const text = parts.join(". ") || "Nothing to read. Select some cells.";
+    speechSynthesis.cancel();
+    speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    dialog("Immersive Reader", `<p>Reading the selected cells aloud.</p><p class="note">${esc(text.slice(0, 500))}</p>`,
+      [{ label: "Stop", onClick: () => { speechSynthesis.cancel(); } }, { label: "Close", primary: true }]);
+  }
+
+  // Versions: a saved copy of the workbook, kept in this browser
+  const versions = () => JSON.parse(localStorage.getItem(VER_KEY) || "[]");
+
+  function saveVersion(name) {
+    const list = [{ name, time: new Date().toLocaleString(), json: core.serialize() }, ...versions()].slice(0, 20);
+    localStorage.setItem(VER_KEY, JSON.stringify(list));
+    core.toast("Version saved: " + name);
+  }
+
+  function versionHistory() {
+    const list = versions();
+    const rows = list.length
+      ? list.map((v, i) => `<tr><th>${esc(v.name)}</th><td>${esc(v.time)}</td>` +
+          `<td><button class="btn" data-restore="${i}">Restore</button></td></tr>`).join("")
+      : `<tr><td colspan="3">No versions yet. Save one to start the history.</td></tr>`;
+    const d = dialog("Version History", `<table class="list">${rows}</table>`,
+      [{ label: "Save current version", onClick: () => {
+          const name = prompt("Name for this version:", "Version " + (list.length + 1));
+          if (name && name.trim()) saveVersion(name.trim());
+          return false;
+        } }, { label: "Close", primary: true }]);
+    d.el.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-restore]");
+      if (!b) return;
+      d.close();
+      core.load(list[+b.dataset.restore].json);
+      core.toast("Restored " + list[+b.dataset.restore].name);
+    });
+  }
+
+  // The cells of the active sheet, read from a saved workbook (old and new formats)
+  function parseEntries(json) {
+    const o = JSON.parse(json);
+    if (Array.isArray(o)) return new Map(o);
+    if (o.s) return new Map(o.s[o.a || 0].c);
+    return new Map(o.c);
+  }
+
+  // Shows the cells that differ from the newest saved version (highlighted like Ctrl+click selections)
+  function showChanges() {
+    const list = versions();
+    if (!list.length) return core.toast("Save a version first (Version History), then Show Changes compares against it");
+    const before = parseEntries(list[0].json), now = parseEntries(core.serialize());
+    const rects = [];
+    for (const k of new Set([...before.keys(), ...now.keys()])) {
+      if (JSON.stringify(before.get(k) || null) === JSON.stringify(now.get(k) || null)) continue;
+      const [r, c] = k.split(",").map(Number);
+      rects.push({ r1: r, c1: c, r2: r, c2: c });
+    }
+    if (!rects.length) return core.toast("No changes since the newest saved version");
+    core.setExtras(rects);
+    core.toast(`${rects.length} changed cell(s) highlighted. Remove Arrows clears them.`);
+  }
+
+  function accessibilityCheck() {
+    const issues = [];
+    for (const k of core.cells.keys()) {
+      const [r, c] = k.split(",").map(Number);
+      const cell = core.getCell(r, c);
+      const v = core.cellValue(r, c);
+      if (engine().isError(v)) issues.push(`${addr(r, c)}: error ${v.code}`);
+      if (cell.s.size && cell.s.size < 9 && v !== null) issues.push(`${addr(r, c)}: text is smaller than 9 pt`);
+    }
+    dialog("Accessibility Check",
+      issues.length ? `<ul>${issues.slice(0, 200).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "<p>No accessibility issues found.</p>",
+      [{ label: "Close", primary: true }]);
+  }
+
+  // Pause Protection switches sheet protection off; pressing it again switches it back on
+  function pauseProtection() {
+    if (core.isProtected()) {
+      core.setProtected(false);
+      pausedProtect = true;
+      core.toast("Protection paused. Press Pause Protection again to turn it back on.");
+    } else if (pausedProtect) {
+      core.setProtected(true);
+      pausedProtect = false;
+      core.toast("Protection is on again");
+    } else {
+      core.toast("This sheet is not protected");
+    }
+  }
+
+  // Draw: the ink is kept in this browser; Draw with Touch lets a finger or stylus draw without scrolling
+  function saveInk() {
+    localStorage.setItem(INK_KEY, JSON.stringify(draw.strokes));
+  }
+
+  function loadInk() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(INK_KEY) || "[]");
+      if (Array.isArray(saved)) draw.strokes = saved;
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function toggleTouchDraw() {
+    draw.touch = !draw.touch;
+    draw.layer.style.touchAction = draw.touch ? "none" : "";
+    if (draw.touch && draw.mode === "pointer") setDrawMode("pen");
+    document.querySelectorAll('[data-cmd="drawTouch"]').forEach((b) => b.classList.toggle("on", draw.touch));
+    core.toast(draw.touch ? "Touch drawing is on" : "Touch drawing is off");
+  }
+
+  // Home > Editing extras: Fill Right, Fill Series, Replace and Go To
+  function fillRight() {
+    if (core.isProtected()) return core.toast("Sheet is protected. Unprotect it to edit.");
+    const R = core.range();
+    if (R.c2 === R.c1) return core.toast("Select at least two columns; the left column is the source");
+    for (let r = R.r1; r <= R.r2; r++) {
+      const src = core.getCell(r, R.c1);
+      for (let c = R.c1 + 1; c <= R.c2; c++) {
+        core.setValue(r, c, src ? engine().shiftFormula(src.v, 0, c - R.c1) : "");
+      }
+    }
+    core.refresh();
+    core.toast("Filled right");
+  }
+
+  // Linear series: the first two numbers of the top-left column give the step
+  function fillSeries() {
+    if (core.isProtected()) return core.toast("Sheet is protected. Unprotect it to edit.");
+    const R = core.range();
+    const nums = [];
+    for (let r = R.r1; r <= R.r2 && nums.length < 2; r++) {
+      const v = core.cellValue(r, R.c1);
+      if (typeof v === "number") nums.push(v);
+    }
+    if (!nums.length) return core.toast("Type a starting number in the top cell first");
+    const start = nums[0], step = nums.length > 1 ? nums[1] - nums[0] : 1;
+    for (let r = R.r1; r <= R.r2; r++) {
+      for (let c = R.c1; c <= R.c2; c++) core.setValue(r, c, String(Number((start + (r - R.r1) * step).toPrecision(12))));
+    }
+    core.refresh();
+    core.toast(`Series filled with step ${step}`);
+  }
+
+  function goTo() {
+    const d = dialog("Go To",
+      `<label>Reference<input id="gtRef" type="text" placeholder="for example C12" /></label>`,
+      [{ label: "Cancel" },
+        { label: "OK", primary: true, onClick: (el) => {
+          const p = parseAddr(el.querySelector("#gtRef").value);
+          if (!p || p.r > 1048575 || p.c > 16383) { core.toast("Enter a cell reference such as C12"); return false; }
+          core.goTo(p.r, p.c);
+        } }]);
+    return d;
+  }
+
+  // Replaces text in typed values (formulas are left alone)
+  function replaceText() {
+    const d = dialog("Replace",
+      `<label>Find what<input id="rpFind" type="text" /></label>
+       <label>Replace with<input id="rpWith" type="text" /></label>`,
+      [{ label: "Cancel" },
+        { label: "Replace all", primary: true, onClick: (el) => {
+          if (core.isProtected()) { core.toast("Sheet is protected. Unprotect it to edit."); return false; }
+          const find = el.querySelector("#rpFind").value, rep = el.querySelector("#rpWith").value;
+          if (!find) { core.toast("Enter the text to find"); return false; }
+          let n = 0;
+          for (const k of Array.from(core.cells.keys())) {
+            const [r, c] = k.split(",").map(Number);
+            const cell = core.getCell(r, c);
+            if (!cell || cell.v[0] === "=" || !cell.v.includes(find)) continue;
+            core.setValue(r, c, cell.v.split(find).join(rep));
+            n++;
+          }
+          core.refresh();
+          core.toast(`Replaced in ${n} cell(s)`);
+        } }]);
+    return d;
+  }
+
+  function homeExtras(cmd, val) {
+    switch (cmd) {
+      case "fillRight": fillRight(); return true;
+      case "series": fillSeries(); return true;
+      case "replace": replaceText(); return true;
+      case "goto": goTo(); return true;
+      default: return false;
+    }
+  }
+
+  // Activity: the commands run in this session, newest first
+  function showActivity() {
+    const log = core.activity();
+    const body = log.length
+      ? `<table class="list">${log.map((e) => `<tr><th>${esc(e.time)}</th><td>${esc(e.cmd)}${e.val !== "" ? " (" + esc(e.val) + ")" : ""}</td></tr>`).join("")}</table>`
+      : "<p>No activity yet. Commands you run will appear here.</p>";
+    dialog("Activity", body, [{ label: "Close", primary: true }]);
+  }
+
+  // Help: topics with search
+  const HELP_TOPICS = [
+    ["Getting started", "Type in a cell and press Enter to move down, or Tab to move right. Select cells by dragging, or click a column or row heading. Your workbook is saved automatically in this browser."],
+    ["Formulas", "Start a formula with =, for example =SUM(A1:A10). Formulas > Insert Function lists functions. Define Name gives a range a name for use in formulas. Manual calculation keeps results until you press Calculate Sheet."],
+    ["Data", "Sort with Data > Sort & Filter, and use Custom Sort for two keys. Data Validation limits what can be typed in a cell. Subtotal adds a Total row under each group. Get Data > From Text/CSV loads a CSV file."],
+    ["Page layout and printing", "Set paper size, orientation, margins and the print area on the Page Layout tab. File > Print shows a preview. Print sends it to the browser print dialog, where Save as PDF makes a PDF."],
+    ["Comments and review", "New Comment adds a note to the active cell. Show Changes highlights the cells that differ from the newest saved version. Version History saves and restores versions."],
+    ["Views and zoom", "Zoom changes the size of the sheet. Custom Views keeps a zoom and display setting under a name. Navigation lists names, comments and errors so you can jump to them."],
+    ["Drawing", "Draw > Pen, Red Pen and Highlighter mark the sheet. Eraser removes ink and shapes. Draw with Touch lets you draw with a finger or stylus. Ink is kept in this browser."],
+    ["Keyboard shortcuts", "Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste. Ctrl+Z and Ctrl+Y undo and redo. Ctrl+B, Ctrl+I and Ctrl+U bold, italic and underline. Ctrl+D fills down. Ctrl+F finds. Ctrl+S downloads a copy."],
+    ["Known limits", "Filter, Group, Freeze Panes and Spelling are not available yet. Charts are previews. Shapes and pictures are not saved with the file."]
+  ];
+
+  function openHelp() {
+    const d = dialog("Help",
+      `<input class="search-in" id="helpSearch" placeholder="Search help" />
+       <div class="fn-list" id="helpList">${HELP_TOPICS.map((t, i) => `<button class="fn-item" data-topic="${i}"><b>${esc(t[0])}</b></button>`).join("")}</div>`,
+      [{ label: "Close", primary: true }]);
+    const list = d.el.querySelector("#helpList");
+    d.el.querySelector("#helpSearch").addEventListener("input", (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      list.querySelectorAll("[data-topic]").forEach((b) => {
+        const t = HELP_TOPICS[+b.dataset.topic];
+        b.style.display = !q || (t[0] + " " + t[1]).toLowerCase().includes(q) ? "" : "none";
+      });
+    });
+    d.el.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-topic]");
+      if (!b) return;
+      const t = HELP_TOPICS[+b.dataset.topic];
+      d.el.querySelector(".dlg-b").innerHTML = `<h3>${esc(t[0])}</h3><p>${esc(t[1])}</p>` +
+        `<p><button class="btn" id="helpBack">Back to topics</button></p>`;
+      d.el.querySelector("#helpBack").onclick = () => { d.close(); openHelp(); };
+    });
+  }
+
+  function reviewViewHelp(cmd, val) {
+    switch (cmd) {
+      case "showChanges": showChanges(); return true;
+      case "version": versionHistory(); return true;
+      case "spelling": notAvailable("Spelling", "Spelling needs a dictionary of words. This version does not include one."); return true;
+      case "accessibilityCheck": accessibilityCheck(); return true;
+      case "pauseProtection": pauseProtection(); return true;
+      case "zoom": zoomPrompt(); return true;
+      case "zoom100": setZoomPct(100); return true;
+      case "zoomSel": setZoomPct(Number(val)); return true;
+      case "zoomPct": setZoomPct(Number(val)); return true;
+      case "zoomIn": stepZoom(1); return true;
+      case "zoomOut": stepZoom(-1); return true;
+      case "zoomSelection": zoomToSelection(); return true;
+      case "saveView": saveViewPrompt(); return true;
+      case "newView": case "newWindow":
+        window.open(location.href.split("#")[0], "_blank", "noopener");
+        return true;
+      case "viewOptions": openBackstage("options"); return true;
+      case "sheetViewDefault": applyView(DEFAULT_VIEW); return true;
+      case "customViews": customViews(); return true;
+      case "navigation": navigation(); return true;
+      case "activity": showActivity(); return true;
+      case "focusCell": core.sheetOpt.focusCell = !core.sheetOpt.focusCell; core.refresh(); return true;
+      case "immersive": immersiveReader(); return true;
+      case "freezePanes": case "freezeTop": case "freezeFirst":
+        notAvailable("Freeze Panes", "Freeze Panes keeps rows and columns in place while the sheet scrolls. This version does not support frozen panes yet.");
+        return true;
+      default: return false;
+    }
+  }
+
   function toggleFullscreen() {
     if (document.fullscreenElement) document.exitFullscreen();
     else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
@@ -1684,11 +2491,10 @@
       case "fnInsert": insertFunction(val); return true;
       case "chart": showChart(val); return true;
       case "draw": setDrawMode(val); return true;
-      case "drawTouch": core.toast("Touch drawing is not available in this version"); return true;
+      case "drawTouch": toggleTouchDraw(); return true;
       case "border": core.applyStyle({ border: val === "none" ? null : true }); return true;
       case "calcBook": core.refresh(); core.toast("All formulas are up to date"); return true;
       case "refreshAll": core.toast("No external data connections in this workbook"); return true;
-      case "sheetViewDefault": core.toast("Default view"); return true;
       case "newBook": openBackstage("new"); return true;
       case "saveBook": saveBook(); return true;
       case "exportCsv": exportCsv(); return true;
@@ -1717,7 +2523,7 @@
       case "deleteCols": core.editLines("col", true); return true;
       case "cfRule": addRuleFromPrompt(val); return true;
       case "cfClear": core.clearRules(); return true;
-      default: return applyCore(cmd, val);
+      default: return formulasAndData(cmd, val) || reviewViewHelp(cmd, val) || homeExtras(cmd, val) || applyCore(cmd, val);
     }
   }
 
@@ -1761,7 +2567,18 @@
     $("btnShare").addEventListener("click", showShare);
     $("btnStats").addEventListener("click", showStats);
     $("btnInsertFn").addEventListener("click", showInsertFunction);
-    $("btnAddSheet").addEventListener("click", () => core.toast("Only one sheet in this version"));
+    $("btnAddSheet").addEventListener("click", () => core.addSheet());
+    $("sheetTabs").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-sheet]");
+      if (b) core.switchSheet(+b.dataset.sheet);
+    });
+    $("sheetTabs").addEventListener("dblclick", (e) => {
+      const b = e.target.closest("[data-sheet]");
+      if (!b) return;
+      const i = +b.dataset.sheet;
+      const name = prompt("Sheet name:", core.sheetList()[i].name);
+      if (name !== null) core.renameSheet(i, name);
+    });
     $("btnCollapse").addEventListener("click", () => {
       const collapsed = $("app").classList.toggle("ribbon-collapsed");
       $("btnCollapse").innerHTML = ic(collapsed ? "chevDown" : "chevUp");
@@ -1776,18 +2593,7 @@
       });
     });
 
-    const search = $("searchBox");
-    search.addEventListener("input", () => runSearch(search.value));
-    search.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        const first = $("popRoot").querySelector(".mi:not(.dis)");
-        if (first) first.click();
-      }
-      if (e.key === "Escape") { search.value = ""; search.blur(); closeFloating(); }
-    });
-
     document.addEventListener("keydown", (e) => {
-      if (e.altKey && (e.key === "q" || e.key === "Q")) { e.preventDefault(); search.focus(); return; }
       if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) { e.preventDefault(); saveBook(); return; }
       if (e.key === "Escape") {
         closeFloating();
@@ -1804,13 +2610,21 @@
       core = c;
       wire();
       setupDrawing();
+      const savedZoom = Number(localStorage.getItem("quadra.zoom"));
+      if (savedZoom) { core.setZoom(savedZoom); updateZoomLabel(); }
       const savedTheme = localStorage.getItem(THEME_KEY);
       applyTheme(savedTheme || "light");
       if (accentOverride) setAccent(accentOverride);
       const savedFont = localStorage.getItem(FONT_KEY);
       if (savedFont) core.setDefaultFont(savedFont);
       restoreSession();
-      core.onChange(() => { scheduleSave(); updateStatus(); });
+      core.onChange(() => { scheduleSave(); updateStatus(); renderSheetTabs(); });
+      // do not lose the last change when the page closes before the autosave timer runs
+      window.addEventListener("pagehide", () => {
+        clearTimeout(saveTimer);
+        try { localStorage.setItem(AUTOSAVE_KEY, core.serialize()); } catch (e) { console.error(e); }
+      });
+      renderSheetTabs(true);
       updateStatus();
       setSaved("Saved");
       document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === currentTab));
