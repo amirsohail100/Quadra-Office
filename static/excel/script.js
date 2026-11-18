@@ -2,7 +2,8 @@
   "use strict";
 
   // ---------- Config ----------
-  const HDR_W = 40, HDR_H = 20, COL_W = 64, ROW_H = 20;
+  let HDR_W = 40, HDR_H = 20, COL_W = 64, ROW_H = 20; // base sizes at 100%; setZoom() rescales them
+  let zoom = 1;
   const MAX_ROWS = 1048576, MAX_COLS = 16384;   // Excel's own limits
   const ROW_CHUNK = 500, COL_CHUNK = 100;       // grid grows in chunks as you scroll
   const DEFAULT_SIZE = 11;
@@ -19,9 +20,10 @@
 
   // ---------- State ----------
   let rowCount = 1000, colCount = 100;
-  const cells = new Map();                    // "r,c" -> { v: string, s: {style} }
+  let cells = new Map();                    // "r,c" -> { v: string, s: {style} }
   const S = { ar: 0, ac: 0, fr: 0, fc: 0 };   // anchor = active cell, focus = range end
   let editing = false, dragging = false, clip = null, painter = null;
+  let editR = 0, editC = 0; // the cell that the open editor writes to
   let extras = []; // extra selected rectangles added with Ctrl+click
   const pal = {
     cell: "#ffffff", text: "#201f1e", grid: "#e1dfdd", accent: "#107c41",
@@ -30,7 +32,9 @@
   };
   const listeners = [];
   let bgImage = null; // sheet background picture (Page Layout > Background)
-  const rules = []; // conditional formatting: {r1,c1,r2,c2,op,a,b,fill,color}
+  let rules = []; // conditional formatting of the active sheet: {r1,c1,r2,c2,op,a,b,fill,color}
+  let sheets = [{ name: "Sheet1", cells, rules }]; // every sheet keeps its own cells and rules
+  let activeSheet = 0;
   let pendingColor = null, rafId = 0, toastTimer = 0;
 
   // ---------- Helpers ----------
@@ -97,15 +101,18 @@
   const memo = new Map();       // computed values, cleared on every refresh()
   const computing = new Set();  // cells on the current evaluation path (cycle detection)
 
+  let autoCalc = true; // Formulas > Calculation Options: Automatic or Manual
+  const names = new Map(); // defined names: UPPER-CASE name -> {r1,c1,r2,c2}
+
   function cellValue(r, c) {
     const k = key(r, c);
-    if (memo.has(k)) return memo.get(k);
     const cell = cells.get(k);
     if (!cell || cell.v === "") return null;
-    let v;
     if (cell.v.length > 1 && cell.v[0] === "=") {
+      if (memo.has(k)) return memo.get(k);  // formulas are cached until the next recalculation
       if (computing.has(k)) return new QE.CellError(QE.ERR.CIRC);
       computing.add(k);
+      let v;
       try {
         v = QE.computeRaw(cell.v, cellEnv);
       } catch (e) {
@@ -114,13 +121,15 @@
       } finally {
         computing.delete(k);
       }
-    } else {
-      v = QE.parseLiteral(cell.v);
+      memo.set(k, v);
+      return v;
     }
-    memo.set(k, v);
-    return v;
+    return QE.parseLiteral(cell.v);
   }
-  const cellEnv = { cell: (r, c) => cellValue(r, c), maxRows: MAX_ROWS, maxCols: MAX_COLS };
+  const cellEnv = {
+    cell: (r, c) => cellValue(r, c), maxRows: MAX_ROWS, maxCols: MAX_COLS,
+    name: (n) => names.get(n.toUpperCase()) || null
+  };
 
   function numGeneral(n) {
     return Number.isInteger(n) ? String(n) : String(Number(n.toPrecision(10)));
@@ -210,7 +219,7 @@
   }
 
   function drawCellText(cell, v, text, x, y) {
-    const s = cell.s, size = Math.round((s.size || DEFAULT_SIZE) * 1.2), pad = 4;
+    const s = cell.s, size = Math.round((s.size || DEFAULT_SIZE) * 1.2 * zoom), pad = 4;
     ctx.font = `${s.italic ? "italic " : ""}${s.bold ? "bold " : ""}${size}px ${s.font || DEFAULT_FONT}, Arial, sans-serif`;
     ctx.fillStyle = s.color || pal.text;
     const ha = s.ha || (typeof v === "number" ? "right" : typeof v === "boolean" ? "center" : "left");
@@ -296,6 +305,13 @@
     for (let c = c0; c <= c1 + 1; c++) { const x = Math.floor(X(c)) + 0.5; ctx.moveTo(x, HDR_H); ctx.lineTo(x, H); }
     for (let r = r0; r <= r1 + 1; r++) { const y = Math.floor(Y(r)) + 0.5; ctx.moveTo(HDR_W, y); ctx.lineTo(W, y); }
     ctx.stroke();
+
+    // Focus Cell: tint the active row and column
+    if (sheetOpt.focusCell) {
+      ctx.fillStyle = pal.selTint;
+      ctx.fillRect(HDR_W, Y(S.ar), W - HDR_W, ROW_H);
+      ctx.fillRect(X(S.ac), HDR_H, COL_W, H - HDR_H);
+    }
 
     // 3b. cell borders
     ctx.strokeStyle = pal.border; ctx.lineWidth = 1; ctx.beginPath();
@@ -406,10 +422,50 @@
   // ---------- Undo / redo (snapshots of the cell store) ----------
   const undoStack = [], redoStack = [];
   let lastSnap = "[]";
-  const snapshot = () => JSON.stringify({ c: Array.from(cells.entries()), r: rules });
+  const snapshot = () => JSON.stringify({
+    v: 2, a: activeSheet,
+    s: sheets.map((sh) => ({ name: sh.name, c: Array.from(sh.cells.entries()), r: sh.rules })),
+    n: Array.from(names.entries())
+  });
+  // Accepts the current format and the older single-sheet formats
   function parseSnap(text) {
     const o = JSON.parse(text);
-    return Array.isArray(o) ? { c: o, r: [] } : o;
+    if (Array.isArray(o)) return { a: 0, s: [{ name: "Sheet1", c: o, r: [] }], n: [] };
+    if (!o.s) return { a: 0, s: [{ name: "Sheet1", c: o.c || [], r: o.r || [] }], n: o.n || [] };
+    return Object.assign({ a: 0, n: [] }, o);
+  }
+  function applySnap(o) {
+    sheets = o.s.map((x) => ({ name: x.name, cells: new Map(x.c), rules: x.r.slice() }));
+    activeSheet = Math.max(0, Math.min(sheets.length - 1, o.a || 0));
+    cells = sheets[activeSheet].cells;
+    rules = sheets[activeSheet].rules;
+    names.clear();
+    for (const [k, v] of o.n) names.set(k, v);
+  }
+  // Sheet tabs: switching keeps each sheet's own data; undo history is per sheet
+  function switchSheet(i) {
+    if (i < 0 || i >= sheets.length || i === activeSheet) return;
+    activeSheet = i;
+    cells = sheets[i].cells;
+    rules = sheets[i].rules;
+    extras = [];
+    S.ar = S.ac = S.fr = S.fc = 0;
+    undoStack.length = 0;
+    redoStack.length = 0;
+    lastSnap = snapshot();
+    refresh();
+  }
+  function addSheet() {
+    let n = sheets.length + 1;
+    while (sheets.some((x) => x.name === "Sheet" + n)) n++;
+    sheets.push({ name: "Sheet" + n, cells: new Map(), rules: [] });
+    switchSheet(sheets.length - 1);
+  }
+  function renameSheet(i, name) {
+    const n = String(name).trim().slice(0, 31);
+    if (!n || sheets.some((x, j) => j !== i && x.name === n)) return toast("That sheet name is not available");
+    sheets[i].name = n;
+    refresh();
   }
   function recordHistory() {
     const now = snapshot();
@@ -420,11 +476,7 @@
     lastSnap = now;
   }
   function restoreSnap(s) {
-    const o = parseSnap(s);
-    cells.clear();
-    for (const [k, v] of o.c) cells.set(k, v);
-    rules.length = 0;
-    rules.push(...o.r);
+    applySnap(parseSnap(s));
     lastSnap = s;
     refresh();
   }
@@ -529,7 +581,7 @@
   // ---------- Selection & refresh ----------
   function refresh() {
     recordHistory();
-    memo.clear();
+    if (autoCalc) memo.clear();
     for (const fn of listeners) fn();
     if (document.activeElement !== nameBox) nameBox.value = ref(S.ar, S.ac);
     if (document.activeElement !== fbInput) fbInput.value = activeCell() ? activeCell().v : "";
@@ -556,6 +608,7 @@
     if (sheetProtected) return toast("Sheet is protected. Unprotect it to edit.");
     const r = S.ar, c = S.ac;
     ensureVisible(r, c);
+    editR = r; editC = c;
     const cell = getCell(r, c), s = (cell && cell.s) || {};
     editing = true;
     ed.style.display = "block";
@@ -563,7 +616,7 @@
     ed.style.top = HDR_H + r * ROW_H + "px";
     ed.style.width = COL_W + "px";
     ed.style.height = ROW_H + "px";
-    ed.style.font = `${s.italic ? "italic " : ""}${s.bold ? "bold " : ""}${Math.round((s.size || DEFAULT_SIZE) * 1.2)}px ${s.font || DEFAULT_FONT}, Arial, sans-serif`;
+    ed.style.font = `${s.italic ? "italic " : ""}${s.bold ? "bold " : ""}${Math.round((s.size || DEFAULT_SIZE) * 1.2 * zoom)}px ${s.font || DEFAULT_FONT}, Arial, sans-serif`;
     ed.style.color = s.color || pal.text;
     ed.style.background = s.fill || pal.cell;
     ed.style.textAlign = s.ha || "left";
@@ -575,13 +628,32 @@
     draw();
   }
 
+  // Data validation: returns a message when the text breaks the rule of that cell, otherwise null
+  function validationError(r, c, text) {
+    const cell = getCell(r, c);
+    const rule = cell && cell.s.validation;
+    if (!rule || text === "") return null;
+    const v = QE.parseLiteral(text);
+    if (rule.type === "list") {
+      return rule.list.includes(String(text).trim()) ? null : (rule.message || "Choose a value from the list: " + rule.list.join(", "));
+    }
+    if (rule.type === "number") {
+      if (typeof v !== "number") return rule.message || "Enter a number";
+      if (rule.min !== undefined && v < rule.min) return rule.message || "The number must be at least " + rule.min;
+      if (rule.max !== undefined && v > rule.max) return rule.message || "The number must be at most " + rule.max;
+    }
+    return null;
+  }
+
   function commitEdit(dr, dc) {
     if (!editing) return;
+    const bad = validationError(editR, editC, ed.value);
+    if (bad) { toast(bad); return; }
     editing = false;
     const v = ed.value;
     ed.blur();
     ed.style.display = "none";
-    setValue(S.ar, S.ac, v);
+    setValue(editR, editC, v);
     if (dr || dc) moveFocus(dr, dc, false); else refresh();
   }
 
@@ -870,12 +942,15 @@
   }
 
   // Sort the selected rows by the active cell's column. Blanks always go last.
-  function sortRange(asc) {
+  let lastSort = null; // the keys used last time, for Data > Reapply
+
+  // keys: [{c: absolute column index, asc: boolean}, ...]. Blank cells always go last.
+  function sortByKeys(keys) {
     if (sheetProtected) return toast("Sheet is protected. Unprotect it to edit.");
     const R = range();
     if (R.r1 === R.r2) return toast("Select at least two rows to sort");
     if ((R.r2 - R.r1 + 1) * (R.c2 - R.c1 + 1) > 200000) return toast("Select a smaller range to sort");
-    const ki = S.ac - R.c1;
+    lastSort = keys.map((k) => ({ c: k.c, asc: k.asc }));
     const rows = [];
     for (let r = R.r1; r <= R.r2; r++) {
       const row = [];
@@ -887,13 +962,17 @@
     }
     const isBlank = (cl) => !cl || cl.dv === null;
     rows.sort((a, b) => {
-      const x = a[ki], y = b[ki];
-      const xb = isBlank(x), yb = isBlank(y);
-      if (xb && yb) return 0;
-      if (xb) return 1;
-      if (yb) return -1;
-      const res = QE.compareValues(x.dv, y.dv);
-      return asc ? res : -res;
+      for (const k of keys) {
+        const i = k.c - R.c1;
+        const x = a[i], y = b[i];
+        const xb = isBlank(x), yb = isBlank(y);
+        if (xb && yb) continue;
+        if (xb) return 1;
+        if (yb) return -1;
+        const res = QE.compareValues(x.dv, y.dv);
+        if (res) return k.asc ? res : -res;
+      }
+      return 0;
     });
     rows.forEach((row, i) => {
       row.forEach((cl, j) => {
@@ -908,6 +987,11 @@
     });
     prune();
     refresh();
+  }
+
+  function sortRange(asc) {
+    if (range().r1 === range().r2) return toast("Select at least two rows to sort");
+    sortByKeys([{ c: S.ac, asc }]);
     toast(asc ? "Sorted A to Z" : "Sorted Z to A");
   }
 
@@ -1052,7 +1136,7 @@
   }
 
   // Sheet view options (used by draw)
-  const sheetOpt = { gridView: true, gridPrint: false, headingsView: true, headingsPrint: false, formulaBar: true, showFormulas: false };
+  const sheetOpt = { gridView: true, gridPrint: false, headingsView: true, headingsPrint: false, formulaBar: true, showFormulas: false , focusCell: false };
 
   function renderRibbon(tab) {
     ribbon.innerHTML = window.QuadraUI ? window.QuadraUI.ribbonHtml(tab) : "";
@@ -1094,7 +1178,10 @@
     pendingColor = null;
   });
 
+  const activityLog = []; // the last commands run, shown by the Activity button
   function runCmd(cmd, val) {
+    activityLog.push({ cmd, val: val === undefined ? "" : String(val), time: new Date().toLocaleTimeString() });
+    if (activityLog.length > 50) activityLog.shift();
     try {
       return runCmdUnsafe(cmd, val);
     } catch (e) {
@@ -1154,8 +1241,9 @@
         return refresh();
       case "calcNow":
       case "calcSheet":
+        memo.clear();
         refresh();
-        return toast("Formulas are always up to date");
+        return toast("Calculated");
       case "undo": return undo();
       case "redo": return redo();
       case "fillDown": return fillDown();
@@ -1217,7 +1305,7 @@
 
   updateSizer();
   window.QuadraCore = {
-    cells, sel: S, range, getCell, getOrCreate, setValue, cellValue, displayText,
+    get cells() { return cells; }, sel: S, range, getCell, getOrCreate, setValue, cellValue, displayText,
     refresh, toast, applyStyle, forTargets, ensureVisible, sheetOpt, reviewOpt, pal,
     openEditor, run: runCmd, clearAll, clearValues, copyRange, paste,
     getExtras: () => extras,
@@ -1227,27 +1315,49 @@
     onChange: (fn) => { listeners.push(fn); },
     serialize: snapshot,
     load: (json) => {
-      const o = parseSnap(json);
-      cells.clear();
-      for (const [k, v] of o.c) cells.set(k, v);
-      rules.length = 0;
-      rules.push(...o.r);
+      applySnap(parseSnap(json));
       lastSnap = snapshot();
       undoStack.length = 0;
       redoStack.length = 0;
       refresh();
     },
     clearSheet: () => {
-      cells.clear();
-      rules.length = 0;
+      sheets = [{ name: "Sheet1", cells: new Map(), rules: [] }];
+      applySnap({ a: 0, s: [{ name: "Sheet1", c: [], r: [] }], n: [] });
+      names.clear();
       extras = [];
       S.ar = S.ac = S.fr = S.fc = 0;
       refresh();
     },
     undo, redo, requestDraw, relayout: resize,
+    activity: () => activityLog.slice().reverse(),
+    geom: () => ({ HDR_W, HDR_H, COL_W, ROW_H, zoom }),
+    setZoom: (z) => {
+      zoom = z;
+      HDR_W = Math.round(40 * z); HDR_H = Math.round(20 * z);
+      COL_W = Math.round(64 * z); ROW_H = Math.round(20 * z);
+      updateSizer();
+      refresh();
+    },
     setDefaultFont: (f) => { DEFAULT_FONT = f; refresh(); },
     setBackground: (img) => { bgImage = img; requestDraw(); },
-    addRule, clearRules, editLines, ruleFor, rules
+    defineName: (name, rect) => { names.set(name.toUpperCase(), rect); refresh(); },
+    deleteName: (name) => { names.delete(name.toUpperCase()); refresh(); },
+    getNames: () => Array.from(names.entries()),
+    isAutoCalc: () => autoCalc,
+    setAutoCalc: (on) => { autoCalc = !!on; refresh(); },
+    calcNow: () => { memo.clear(); refresh(); },
+    sortByKeys,
+    reapplySort: () => { if (lastSort) sortByKeys(lastSort); else toast("Sort something first"); },
+    goTo: (r1, c1, r2, c2) => { S.ar = S.fr = r1; S.ac = S.fc = c1; if (r2 !== undefined) { S.fr = r2; S.fc = c2; } extras = []; ensureVisible(r1, c1); refresh(); },
+    setExtras: (list) => { extras = list; refresh(); },
+    historyLength: () => undoStack.length,
+    trimHistory: (n) => { undoStack.length = Math.min(undoStack.length, n); },
+    validationError,
+    setValidation: (rule) => { const R = range(); forTargets((r, c) => { getOrCreate(r, c).s.validation = rule; }); refresh(); },
+    addRule, clearRules, editLines, ruleFor, get rules() { return rules; },
+    sheetList: () => sheets.map((x, i) => ({ name: x.name, active: i === activeSheet })),
+    switchSheet, addSheet, renameSheet
   };
 
   renderRibbon("Home");
