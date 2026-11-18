@@ -86,25 +86,6 @@ svg.ic.chev { width: 12px; height: 12px; }
 .saved { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
 .saved svg.ic { width: 13px; height: 13px; }
 
-.search {
-  margin: 0 auto;
-  width: 340px;
-  max-width: 36vw;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  border-radius: 8px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  color: var(--muted);
-}
-.search input {
-  flex: 1; border: 0; outline: none; background: transparent;
-  color: var(--text); font-size: 13px;
-}
-.search input::placeholder { color: var(--muted); }
 
 .tr { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .pill {
@@ -304,9 +285,11 @@ svg.ic.chev { width: 12px; height: 12px; }
 .sheet-tabs { display: flex; height: 100%; align-items: stretch; }
 .sheet-tab {
   height: 28px; margin-top: 3px; padding: 0 14px;
-  background: var(--surface); color: var(--accent); font-weight: 600;
-  border-bottom: 3px solid var(--accent); border-radius: 4px 4px 0 0;
+  background: var(--surface); color: var(--muted); font-weight: 400;
+  border-bottom: 3px solid transparent; border-radius: 4px 4px 0 0; cursor: pointer;
 }
+.sheet-tab:hover { color: var(--text); }
+.sheet-tab.active { color: var(--accent); font-weight: 600; border-bottom-color: var(--accent); }
 
 /* ---------- Status bar ---------- */
 .status-bar {
@@ -497,3 +480,13 @@ table.list th { width: 38%; font-family: Consolas, "Courier New", monospace; fon
   .pg { page-break-after: always; break-after: page; }
   .pg:last-child { page-break-after: auto; break-after: auto; }
 }
+
+/* Dialog forms (Formulas and Data) */
+.dlg label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 13px; color: var(--muted); }
+.dlg label.chk, .dlg label.radio { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
+.dlg input[type="text"], .dlg input[type="number"], .dlg select {
+  height: 30px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--text);
+}
+.dlg input[type="checkbox"] { width: 16px; height: 16px; }
+.dlg code { font-family: Consolas, "Courier New", monospace; font-size: 12px; word-break: break-all; }
