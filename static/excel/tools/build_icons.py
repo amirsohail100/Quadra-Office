@@ -108,6 +108,7 @@ ICONS = {
 
     # ---- Data ----
     "dataPicture": '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-6-6-8 8"/>',
+    "activity": '<path d="M2 12h4l2-5 4 10 2-5h8"/>',
     "refresh": '<path d="M20 11a8 8 0 1 0-2.3 5.6"/><path d="M20 4v7h-7"/>',
     "queries": '<ellipse cx="10" cy="6" rx="6" ry="3"/><path d="M4 6v12c0 1.7 2.7 3 6 3s6-1.3 6-3V6"/><path d="M4 12c0 1.7 2.7 3 6 3"/>',
     "workbookLinks": '<rect x="3" y="4" width="8" height="6" rx="1"/><rect x="13" y="14" width="8" height="6" rx="1"/><path d="M11 7h2v8h-2"/>',
