@@ -78,6 +78,7 @@
     const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
     return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
   }
+  function contrastRatio(a, b) { const la = luminance(a), lb = luminance(b); return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05); }
   function contrastColor(hex) { return luminance(hex) > 0.4 ? '#1b1b1b' : '#ffffff'; }
   function shade(hex, amt) {
     const c = hexToRgb(hex); if (!c) return hex;
@@ -87,7 +88,7 @@
   // ---------- text style / shapes ----------
   const DEFAULT_TS = () => ({
     font: null, size: 18, bold: false, italic: false, underline: false, strike: false,
-    sub: false, sup: false, color: null, highlight: null, align: 'left', list: 'none', caps: null,
+    sub: false, sup: false, color: null, highlight: null, align: 'left', list: 'none', caps: null, lineHeight: 1.2,
   });
 
   function layoutPlaceholders(layout, H) {
@@ -114,7 +115,13 @@
     }
   }
 
-  const TEXT_TYPES = ['rect', 'oval', 'textbox'];
+  const SHAPE_KINDS = ['rect', 'rrect', 'oval', 'triangle', 'diamond', 'hexagon', 'star', 'rarrow'];
+  const POLY = { // polygon points on a 100 x 100 box (shapes drawn as SVG)
+    triangle: '50,2 98,98 2,98', diamond: '50,2 98,50 50,98 2,50', hexagon: '25,4 75,4 98,50 75,96 25,96 2,50',
+    star: '50,2 61,37 98,38 68,60 79,96 50,74 21,96 32,60 2,38 39,37', rarrow: '2,30 60,30 60,6 98,50 60,94 60,70 2,70',
+  };
+  const SHAPE_NAMES = { rect: 'Rectangle', rrect: 'Rounded Rectangle', oval: 'Oval', triangle: 'Triangle', diamond: 'Diamond', hexagon: 'Hexagon', star: 'Star', rarrow: 'Block Arrow' };
+  const TEXT_TYPES = ['rect', 'rrect', 'oval', 'triangle', 'diamond', 'hexagon', 'star', 'rarrow', 'textbox'];
   function canHoldText(sh) { return TEXT_TYPES.indexOf(sh.type) >= 0; }
   function hasTextStyle(sh) { return canHoldText(sh) || sh.type === 'table'; }
   // links: only http(s) and mailto are allowed (no javascript: etc.)
@@ -153,6 +160,7 @@
     ['x', 'y', 'w', 'h', 'rot'].forEach((k) => { if (typeof sh[k] !== 'number' || !isFinite(sh[k])) sh[k] = 0; });
     if (sh.line && typeof sh.line === 'object') sh.line = Object.assign({ color: '#000000', width: 2, alpha: 1 }, sh.line);
     if (typeof sh.text !== 'string') sh.text = '';
+    sh.ts.lineHeight = clamp(Number(sh.ts.lineHeight) || 1.2, 0.8, 3);
     if (sh.type === 'table') {
       if (!Array.isArray(sh.cells) || !sh.cells.length || !Array.isArray(sh.cells[0])) sh.cells = [['', ''], ['', '']];
       const cols = Math.max(1, Math.max.apply(null, sh.cells.map((r) => (Array.isArray(r) ? r.length : 0))));
@@ -175,8 +183,13 @@
       shapes: (d.shapes || []).map(normShape), notes: typeof d.notes === 'string' ? d.notes : '',
       transition: Object.assign({ type: 'none', dur: 0.7, dir: 'left' }, d.transition || {}),
       anims: (d.anims || []).filter((a) => a && a.shapeId),
+      hidden: !!d.hidden,
       advance: Object.assign({ click: true, after: null }, d.advance || {}),
-      comments: (d.comments || []).filter((c) => c && typeof c.text === 'string').map((c) => ({ id: c.id || '', text: c.text, author: c.author || 'Quadra user', t: Number(c.t) || 0 })),
+      comments: (d.comments || []).filter((c) => c && typeof c.text === 'string').map((c) => ({
+        id: c.id || '', text: c.text, author: c.author || 'Quadra user', t: Number(c.t) || 0, resolved: !!c.resolved,
+        seenBy: Array.isArray(c.seenBy) ? c.seenBy.map(String) : [c.author || 'Quadra user'],
+        replies: (Array.isArray(c.replies) ? c.replies : []).filter((r) => r && typeof r.text === 'string').map((r) => ({ author: r.author || 'Quadra user', text: r.text, t: Number(r.t) || 0 })),
+      })),
     };
     if (TRANSITIONS.indexOf(s.transition.type) < 0) s.transition.type = 'none';
     s.advance.click = s.advance.click !== false;
@@ -246,7 +259,7 @@
 
     // slides
     _newSlide(layout) {
-      const s = { id: this.nid('s'), layout, shapes: [], notes: '', transition: { type: 'none', dur: 0.7, dir: 'left' }, advance: { click: true, after: null }, anims: [], comments: [] };
+      const s = { id: this.nid('s'), layout, shapes: [], notes: '', hidden: false, transition: { type: 'none', dur: 0.7, dir: 'left' }, advance: { click: true, after: null }, anims: [], comments: [] };
       layoutPlaceholders(layout, this.H).forEach((p) => s.shapes.push(this._phShape(p)));
       return s;
     }
@@ -269,6 +282,16 @@
       c.comments.forEach((cm) => { cm.id = this.nid('cm'); });
       this.slides.splice(i + 1, 0, c);
       return i + 1;
+    }
+    // insert a copy of a slide object (from the slide clipboard) after afterIndex, with fresh ids
+    pasteSlide(afterIndex, packed) {
+      if (!packed) return -1;
+      const c = normSlide(clone(packed)), map = {};
+      c.id = this.nid('s');
+      c.shapes.forEach((sh) => { const n = this.nid('sh'); map[sh.id] = n; sh.id = n; });
+      c.anims.forEach((a) => { a.id = this.nid('an'); a.shapeId = map[a.shapeId]; });
+      c.comments.forEach((cm) => { cm.id = this.nid('cm'); });
+      const at = clamp(afterIndex + 1, 0, this.slides.length); this.slides.splice(at, 0, c); return at;
     }
     deleteSlide(i) {
       if (!this.slides[i]) return i;
@@ -324,7 +347,7 @@
       const cx = (w) => Math.round((W_ - w) / 2), cy = (h) => Math.round((H_ - h) / 2);
       let d;
       switch (type) {
-        case 'rect': case 'oval':
+        case 'rect': case 'rrect': case 'oval': case 'triangle': case 'diamond': case 'hexagon': case 'star': case 'rarrow':
           d = { w: 280, h: 170, x: cx(280), y: cy(170), fill: acc, line: { color: shade(acc, -0.3), width: 2 }, anchor: 'middle', ts: { size: 20, align: 'center' } }; break;
         case 'line': case 'arrow':
           d = { w: 300, h: 0, x: cx(300), y: Math.round(H_ / 2), fill: null, line: { color: acc, width: 4 } }; break;
@@ -368,6 +391,26 @@
         else sh[k] = patch[k];
       });
       return sh;
+    }
+    // align shapes: with one shape relative to the slide, with several relative to their common bounds
+    alignShapes(i, ids, mode) {
+      const s = this.slides[i]; if (!s) return 0;
+      const list = s.shapes.filter((x) => ids.indexOf(x.id) >= 0); if (!list.length) return 0;
+      const box = list.length === 1 ? { l: 0, t: 0, r: this.W, b: this.H } : { l: Math.min.apply(null, list.map((x) => x.x)), t: Math.min.apply(null, list.map((x) => x.y)), r: Math.max.apply(null, list.map((x) => x.x + x.w)), b: Math.max.apply(null, list.map((x) => x.y + x.h)) };
+      list.forEach((x) => {
+        if (mode === 'left') x.x = box.l; else if (mode === 'right') x.x = box.r - x.w; else if (mode === 'center') x.x = Math.round((box.l + box.r - x.w) / 2);
+        else if (mode === 'top') x.y = box.t; else if (mode === 'bottom') x.y = box.b - x.h; else if (mode === 'middle') x.y = Math.round((box.t + box.b - x.h) / 2);
+      });
+      return list.length;
+    }
+    distributeShapes(i, ids, axis) {
+      const s = this.slides[i]; if (!s) return 0;
+      const list = s.shapes.filter((x) => ids.indexOf(x.id) >= 0); if (list.length < 3) return 0;
+      const k = axis === 'v' ? 'y' : 'x', len = axis === 'v' ? 'h' : 'w';
+      list.sort((a, b) => a[k] - b[k]);
+      const first = list[0], last = list[list.length - 1], total = (last[k] + last[len]) - first[k], used = list.reduce((a, x) => a + x[len], 0), gap = (total - used) / (list.length - 1);
+      let pos = first[k]; list.forEach((x) => { x[k] = Math.round(pos); pos += x[len] + gap; });
+      return list.length;
     }
     reorderShape(i, id, where) {
       const s = this.slides[i]; if (!s) return;
@@ -416,8 +459,19 @@
     // comments
     addComment(i, text, author) {
       const s = this.slides[i]; text = String(text || '').trim(); if (!s || !text) return null;
-      const c = { id: this.nid('cm'), text, author: author || 'Quadra user', t: Date.now() }; s.comments.push(c); return c;
+      author = author || 'Quadra user';
+      const c = { id: this.nid('cm'), text, author, t: Date.now(), resolved: false, seenBy: [author], replies: [] }; s.comments.push(c); return c;
     }
+    _comment(i, id) { const s = this.slides[i]; return s ? s.comments.find((c) => c.id === id) || null : null; }
+    replyComment(i, id, text, author) {
+      const c = this._comment(i, id); text = String(text || '').trim(); if (!c || !text) return null;
+      author = author || 'Quadra user'; const r = { author, text, t: Date.now() }; c.replies.push(r); c.seenBy = [author]; return r;
+    }
+    setResolved(i, id, on) { const c = this._comment(i, id); if (!c) return false; c.resolved = !!on; return true; }
+    markRead(i, id, name) { const c = this._comment(i, id); if (!c) return false; if (c.seenBy.indexOf(name) < 0) c.seenBy.push(name); return true; }
+    markAllRead(name) { let n = 0; this.allComments().forEach((x) => { if (x.comment.seenBy.indexOf(name) < 0) { x.comment.seenBy.push(name); n++; } }); return n; }
+    unreadCount(name) { return this.allComments().filter((x) => x.comment.seenBy.indexOf(name) < 0).length; }
+    setHidden(i, on) { const s = this.slides[i]; if (s) s.hidden = !!on; }
     removeComment(i, id) { const s = this.slides[i]; if (!s) return false; const n = s.comments.length; s.comments = s.comments.filter((c) => c.id !== id); return s.comments.length < n; }
     allComments() { const out = []; this.slides.forEach((s, si) => s.comments.forEach((c) => out.push({ slide: si, comment: c }))); return out; }
     // SmartArt: builds ordinary shapes (so everything stays editable)
@@ -577,14 +631,24 @@
       return true;
     }
 
-    // accessibility
+    // accessibility: [{ slide, shapeId, level: 'error' | 'warning', msg }]
     checkAccessibility() {
-      const issues = [];
+      const issues = [], tv = this.themeVars(), titles = {};
       this.slides.forEach((s, si) => {
         const title = s.shapes.find((sh) => sh.ph === 'title');
-        if (s.layout !== 'blank' && (!title || !title.text.trim())) issues.push({ slide: si, shapeId: title ? title.id : null, msg: 'Slide ' + (si + 1) + ' has no title.' });
+        const tt = title ? title.text.trim() : '';
+        if (s.layout !== 'blank' && !tt) issues.push({ slide: si, shapeId: title ? title.id : null, level: 'error', msg: 'Slide ' + (si + 1) + ' has no title.' });
+        if (tt) { const k = tt.toLowerCase(); if (titles[k] != null) issues.push({ slide: si, shapeId: title.id, level: 'warning', msg: 'Slide ' + (si + 1) + ' has the same title as slide ' + (titles[k] + 1) + '.' }); else titles[k] = si; }
         s.shapes.forEach((sh) => {
-          if (sh.type === 'picture' && !String(sh.alt || '').trim()) issues.push({ slide: si, shapeId: sh.id, msg: 'Picture on slide ' + (si + 1) + ' has no alt text.' });
+          if (sh.type === 'picture' && !String(sh.alt || '').trim()) issues.push({ slide: si, shapeId: sh.id, level: 'error', msg: 'Picture on slide ' + (si + 1) + ' has no alt text.' });
+          if (sh.type === 'table' && !sh.header) issues.push({ slide: si, shapeId: sh.id, level: 'warning', msg: 'Table on slide ' + (si + 1) + ' has no header row.' });
+          const txt = sh.type === 'table' ? sh.cells.map((r) => r.join(' ')).join(' ') : sh.text;
+          if (hasTextStyle(sh) && txt && txt.trim()) {
+            if (sh.ts.size < 12) issues.push({ slide: si, shapeId: sh.id, level: 'warning', msg: 'Text on slide ' + (si + 1) + ' is very small (' + sh.ts.size + ' pt).' });
+            const fg = sh.ts.color || (sh.fill && canHoldText(sh) ? contrastColor(sh.fill) : tv.fg), bg = sh.fill && canHoldText(sh) ? sh.fill : tv.bg;
+            const ratio = contrastRatio(fg, bg);
+            if (ratio < 4.5) issues.push({ slide: si, shapeId: sh.id, level: 'warning', msg: 'Text on slide ' + (si + 1) + ' has low contrast (' + ratio.toFixed(1) + ':1, needs 4.5:1).' });
+          }
         });
       });
       return issues;
@@ -600,6 +664,190 @@
     undo(cur) { if (!this.u.length) return null; this.r.push(cur); return this.u.pop(); }
     redo(cur) { if (!this.r.length) return null; this.u.push(cur); return this.r.pop(); }
     clear() { this.u = []; this.r = []; }
+  }
+
+  // ---------- reading order text (Immersive Reader) ----------
+  function readerText(slide, withNotes) {
+    const items = [];
+    const sorted = slide.shapes.slice().sort((a, b) => (Math.round(a.y / 24) - Math.round(b.y / 24)) || (a.x - b.x));
+    const title = sorted.find((x) => x.ph === 'title');
+    if (title && title.text.trim()) items.push({ kind: 'title', text: title.text.trim(), shapeId: title.id });
+    sorted.forEach((sh) => {
+      if (sh === title) return;
+      if (sh.type === 'table') sh.cells.forEach((r, k) => { const line = r.map((c) => c.trim()).filter(Boolean).join(', '); if (line) items.push({ kind: 'table', text: (sh.header && k === 0 ? 'Header: ' : '') + line, shapeId: sh.id }); });
+      else if (sh.type === 'picture') { if ((sh.alt || '').trim()) items.push({ kind: 'alt', text: 'Picture: ' + sh.alt.trim(), shapeId: sh.id }); }
+      else if (sh.type === 'chart') items.push({ kind: 'alt', text: 'Chart' + (sh.chart.title ? ' ' + sh.chart.title : '') + ': ' + sh.chart.labels.map((l, k) => l + ' ' + sh.chart.values[k]).join(', '), shapeId: sh.id });
+      else if (sh.text && sh.text.trim()) {
+        let n = 0;
+        sh.text.split('\n').forEach((l) => { const t = l.trim(); if (!t) return; n++; items.push({ kind: sh.ts.list === 'bullet' ? 'bullet' : sh.ts.list === 'number' ? 'number' : 'text', n, text: t, shapeId: sh.id }); });
+      }
+    });
+    if (withNotes && slide.notes.trim()) slide.notes.split('\n').forEach((l) => { if (l.trim()) items.push({ kind: 'notes', text: l.trim() }); });
+    return items;
+  }
+
+  // ---------- compare two versions of a deck (Review > Show Changes) ----------
+  function diffPresentations(a, b) {
+    const out = [], q = (t) => '"' + String(t).replace(/\s+/g, ' ').slice(0, 40) + (String(t).length > 40 ? '…' : '') + '"';
+    const title = (s) => { const t = s.shapes.find((x) => x.ph === 'title'); return t && t.text.trim() ? q(t.text.trim()) : ''; };
+    if (a.name !== b.name) out.push({ slide: null, text: 'Presentation renamed to ' + q(b.name) });
+    if (a.size !== b.size) out.push({ slide: null, text: 'Slide size changed to ' + SIZES[b.size].label });
+    if (a.theme.id !== b.theme.id || a.theme.variant !== b.theme.variant) out.push({ slide: null, text: 'Theme or variant changed' });
+    if (JSON.stringify(a.footer) !== JSON.stringify(b.footer)) out.push({ slide: null, text: 'Footer settings changed' });
+    const ai = {}, bi = {}; a.slides.forEach((s, k) => { ai[s.id] = k; }); b.slides.forEach((s, k) => { bi[s.id] = k; });
+    a.slides.forEach((s, k) => { if (!(s.id in bi)) out.push({ slide: null, text: 'Slide ' + (k + 1) + ' ' + title(s) + ' was removed' }); });
+    const common = b.slides.filter((s) => s.id in ai).map((s) => s.id), orderA = a.slides.filter((s) => s.id in bi).map((s) => s.id);
+    b.slides.forEach((s, k) => {
+      const n = k + 1;
+      if (!(s.id in ai)) { out.push({ slide: k, text: 'Slide ' + n + ' ' + title(s) + ' was added' }); return; }
+      const o = a.slides[ai[s.id]];
+      if (common.indexOf(s.id) !== orderA.indexOf(s.id)) out.push({ slide: k, text: 'Slide ' + n + ' was moved (was slide ' + (ai[s.id] + 1) + ')' });
+      if (o.notes !== s.notes) out.push({ slide: k, text: 'Slide ' + n + ': speaker notes changed' });
+      if (o.transition.type !== s.transition.type) out.push({ slide: k, text: 'Slide ' + n + ': transition changed to ' + TRANSITION_NAMES[s.transition.type] });
+      if (!!o.hidden !== !!s.hidden) out.push({ slide: k, text: 'Slide ' + n + (s.hidden ? ' was hidden' : ' is no longer hidden') });
+      if (o.anims.length !== s.anims.length) out.push({ slide: k, text: 'Slide ' + n + ': animations ' + o.anims.length + ' → ' + s.anims.length });
+      if (o.comments.length !== s.comments.length) out.push({ slide: k, text: 'Slide ' + n + ': comments ' + o.comments.length + ' → ' + s.comments.length });
+      const os = {}; o.shapes.forEach((x) => { os[x.id] = x; });
+      s.shapes.forEach((x) => {
+        const y = os[x.id];
+        if (!y) { out.push({ slide: k, shapeId: x.id, text: 'Slide ' + n + ': added ' + (SHAPE_NAMES[x.type] || x.type) + (x.text ? ' ' + q(x.text) : '') }); return; }
+        const tx = (z) => (z.type === 'table' ? JSON.stringify(z.cells) : z.text);
+        if (tx(x) !== tx(y)) out.push({ slide: k, shapeId: x.id, text: 'Slide ' + n + ': text changed ' + q(tx(y)) + ' → ' + q(tx(x)) });
+        if (x.x !== y.x || x.y !== y.y) out.push({ slide: k, shapeId: x.id, text: 'Slide ' + n + ': ' + (SHAPE_NAMES[x.type] || x.type) + ' moved' });
+        if (x.w !== y.w || x.h !== y.h || x.rot !== y.rot) out.push({ slide: k, shapeId: x.id, text: 'Slide ' + n + ': ' + (SHAPE_NAMES[x.type] || x.type) + ' resized or rotated' });
+        if (x.fill !== y.fill || JSON.stringify(x.ts) !== JSON.stringify(y.ts)) out.push({ slide: k, shapeId: x.id, text: 'Slide ' + n + ': formatting changed' });
+      });
+      o.shapes.forEach((y) => { if (!s.shapes.some((x) => x.id === y.id)) out.push({ slide: k, text: 'Slide ' + n + ': removed ' + (SHAPE_NAMES[y.type] || y.type) + (y.text ? ' ' + q(y.text) : '') }); });
+    });
+    return out;
+  }
+
+  // ---------- Review Presentation: checks of a whole deck ----------
+  function reviewIssues(pres, spellCount) {
+    const out = pres.checkAccessibility().map((i) => Object.assign({}, i, { area: 'Accessibility' }));
+    const add = (level, slide, msg, shapeId) => out.push({ area: 'Content', level, slide, shapeId: shapeId || null, msg });
+    if (spellCount) add('warning', null, spellCount + ' possible spelling mistake' + (spellCount > 1 ? 's' : '') + '. Use Review > Proofing > Spelling.');
+    const fonts = new Set();
+    pres.slides.forEach((s, si) => {
+      let words = 0, content = false;
+      s.shapes.forEach((sh) => {
+        if (sh.ts && sh.ts.font) fonts.add(sh.ts.font);
+        const t = sh.type === 'table' ? sh.cells.map((r) => r.join(' ')).join(' ') : sh.text;
+        if (t && t.trim()) { content = true; words += (t.match(/\S+/g) || []).length; if (sh.type !== 'table') sh.text.split('\n').forEach((l) => { if ((l.match(/\S+/g) || []).length > 25) add('tip', si, 'A paragraph on slide ' + (si + 1) + ' is long (' + (l.match(/\S+/g) || []).length + ' words). Shorter lines are easier to read.', sh.id); }); }
+        else if (['textbox', 'rect', 'oval'].indexOf(sh.type) < 0 || sh.type === 'picture' || sh.fill) content = content || (!sh.ph && sh.type !== 'textbox');
+      });
+      if (words > 100) add('warning', si, 'Slide ' + (si + 1) + ' has ' + words + ' words. Consider splitting it.');
+      if (!content) add('warning', si, 'Slide ' + (si + 1) + ' is empty.');
+      if (s.anims.length > 8) add('tip', si, 'Slide ' + (si + 1) + ' has ' + s.anims.length + ' animations. Fewer animations keep the audience focused.');
+    });
+    if (fonts.size > 3) add('warning', null, 'The presentation uses ' + fonts.size + ' different fonts (' + Array.from(fonts).join(', ') + '). Two or three look more consistent.');
+    if (pres.slides.length > 1 && !pres.slides.some((s) => s.notes.trim())) add('tip', null, 'No slide has speaker notes.');
+    const hid = pres.slides.filter((s) => s.hidden).length; if (hid) add('tip', null, hid + ' slide' + (hid > 1 ? 's are' : ' is') + ' hidden and will be skipped in the slide show.');
+    if (new Set(pres.slides.map((s) => s.transition.type)).size > 3) add('tip', null, 'Many different transitions are used. Using one or two looks more professional.');
+    return out;
+  }
+
+  // ---------- spelling (hunspell-style dictionary: stems + affix rules) ----------
+  function makeSpeller(aff, dic) {
+    const rules = { PFX: {}, SFX: {} }, stems = new Map();
+    String(aff).split('\n').forEach((line) => {
+      const t = line.trim().split(/\s+/);
+      if ((t[0] !== 'PFX' && t[0] !== 'SFX') || t.length < 4) return;
+      if (/^[YN]$/.test(t[2]) && /^\d+$/.test(t[3])) { rules[t[0]][t[1]] = { cross: t[2] === 'Y', list: [] }; return; }
+      const r = rules[t[0]][t[1]]; if (!r) return;
+      const strip = t[2] === '0' ? '' : t[2], add = (t[3] === '0' ? '' : t[3]).split('/')[0], cond = t[4] || '.';
+      let re; try { re = new RegExp(t[0] === 'PFX' ? '^' + cond : cond + '$'); } catch (e) { return; }
+      r.list.push({ strip, add, re });
+    });
+    String(dic).split('\n').forEach((line) => {
+      if (!line) return; const k = line.indexOf('/'), w = k < 0 ? line : line.slice(0, k), f = k < 0 ? '' : line.slice(k + 1);
+      stems.set(w, (stems.get(w) || '') + f);
+    });
+    const ok = (f, flag) => f !== undefined && f.indexOf('c') < 0 && (flag == null || f.indexOf(flag) >= 0);
+    function suffixStems(w, flag) { // stems that give w when the suffix rule of `flag` is applied
+      const out = [], r = rules.SFX[flag]; if (!r) return out;
+      r.list.forEach((x) => { if (x.add && !w.endsWith(x.add)) return; const stem = w.slice(0, w.length - x.add.length) + x.strip; if (x.re.test(stem)) out.push(stem); });
+      return out;
+    }
+    function base(w) {
+      if (ok(stems.get(w))) return true;
+      for (const flag in rules.SFX) for (const stem of suffixStems(w, flag)) if (ok(stems.get(stem), flag)) return true;
+      for (const flag in rules.PFX) {
+        const r = rules.PFX[flag];
+        for (const x of r.list) {
+          if (x.add && !w.startsWith(x.add)) continue; const stem = x.strip + w.slice(x.add.length); if (!x.re.test(stem)) continue;
+          if (ok(stems.get(stem), flag)) return true;
+          if (r.cross) for (const sf in rules.SFX) { if (!rules.SFX[sf].cross) continue; for (const inner of suffixStems(stem, sf)) { const f = stems.get(inner); if (ok(f, flag) && f.indexOf(sf) >= 0) return true; } }
+        }
+      }
+      return false;
+    }
+    function check(word) {
+      const w = String(word).replace(/\u2019/g, "'"); if (!w || /\d/.test(w)) return true;
+      if (base(w)) return true;
+      const lower = w.toLowerCase();
+      if (w !== lower) { if (base(lower)) return true; if (w === w.toUpperCase() && base(lower[0].toUpperCase() + lower.slice(1))) return true; }
+      if (w.indexOf('-') > 0) return w.split('-').every((p) => !p || check(p));
+      return false;
+    }
+    const AL = "abcdefghijklmnopqrstuvwxyz'";
+    function suggest(word, max) {
+      const w = String(word).toLowerCase(), found = [], seen = new Set([w]);
+      const tryW = (c, weight) => { if (c && !seen.has(c)) { seen.add(c); if (check(c)) found.push({ c, weight }); } };
+      for (let i = 0; i <= w.length; i++) {
+        if (i < w.length) tryW(w.slice(0, i) + w.slice(i + 1), 1);
+        if (i < w.length - 1) tryW(w.slice(0, i) + w[i + 1] + w[i] + w.slice(i + 2), 0);
+        for (const ch of AL) { if (i < w.length) tryW(w.slice(0, i) + ch + w.slice(i + 1), 2); tryW(w.slice(0, i) + ch + w.slice(i), 1); }
+      }
+      for (let i = 1; i < w.length; i++) { const a = w.slice(0, i), b = w.slice(i), one = (x) => x.length > 1 || x === 'a' || x === 'i'; if (one(a) && one(b) && check(a) && check(b)) found.push({ c: a + ' ' + b, weight: 0.5 }); }
+      found.sort((x, y) => x.weight - y.weight || (y.c[0] === w[0]) - (x.c[0] === w[0]) || x.c.localeCompare(y.c));
+      const cap = word[0] !== word[0].toLowerCase();
+      return found.slice(0, max || 6).map((x) => (cap ? x.c[0].toUpperCase() + x.c.slice(1) : x.c));
+    }
+    return { check, suggest, size: stems.size };
+  }
+  const WORD_RE = /[A-Za-z][A-Za-z'\u2019]*[A-Za-z]|[A-Za-z]/g;
+  // words of a text that are not in the dictionary: [{ word, index }]
+  function misspellings(text, speller, ignore) {
+    const out = [], clean = String(text).replace(/\S*@\S*|\S*:\/\/\S*|www\.\S*/g, (m) => ' '.repeat(m.length));
+    let m; WORD_RE.lastIndex = 0;
+    while ((m = WORD_RE.exec(clean))) {
+      const w = m[0], prev = clean[m.index - 1];
+      if (prev && /[0-9_]/.test(prev)) continue;
+      if (/[a-z][A-Z]/.test(w)) continue;                       // camelCase / iPhone
+      if (w === w.toUpperCase() && w.length <= 6) continue;     // acronyms
+      if (ignore && (ignore.has(w) || ignore.has(w.toLowerCase()))) continue;
+      if (!speller.check(w)) out.push({ word: w, index: m.index });
+    }
+    return out;
+  }
+  // every possible mistake in the deck, in reading order: { slide, shapeId, field, r, c, index, word }
+  function spellIssues(pres, speller, ignore) {
+    const out = [];
+    pres.slides.forEach((s, si) => {
+      s.shapes.forEach((sh) => {
+        if (sh.type === 'table') sh.cells.forEach((row, r) => row.forEach((cell, c) => misspellings(cell, speller, ignore).forEach((m) => out.push({ slide: si, shapeId: sh.id, field: 'cell', r, c, index: m.index, word: m.word }))));
+        else if (sh.text) misspellings(sh.text, speller, ignore).forEach((m) => out.push({ slide: si, shapeId: sh.id, field: 'text', index: m.index, word: m.word }));
+      });
+      if (s.notes) misspellings(s.notes, speller, ignore).forEach((m) => out.push({ slide: si, shapeId: null, field: 'notes', index: m.index, word: m.word }));
+    });
+    return out;
+  }
+  function spellField(pres, o) {
+    const s = pres.slides[o.slide]; if (!s) return null;
+    if (o.field === 'notes') return { get: () => s.notes, set: (v) => { s.notes = v; } };
+    const sh = s.shapes.find((x) => x.id === o.shapeId); if (!sh) return null;
+    if (o.field === 'cell') return { get: () => sh.cells[o.r][o.c], set: (v) => { sh.cells[o.r][o.c] = v; } };
+    return { get: () => sh.text, set: (v) => { sh.text = v; } };
+  }
+  function spellText(pres, o) { const f = spellField(pres, o); return f ? f.get() : ''; }
+  function spellReplace(pres, o, repl) { const f = spellField(pres, o); if (!f) return false; const t = f.get(); if (t.substr(o.index, o.word.length) !== o.word) return false; f.set(t.slice(0, o.index) + repl + t.slice(o.index + o.word.length)); return true; }
+  function spellReplaceAll(pres, speller, word, repl) {
+    let n = 0;
+    for (;;) { // recompute after every change because indexes move
+      const hit = spellIssues(pres, speller, null).find((x) => x.word === word); if (!hit || n > 500) return n;
+      if (!spellReplace(pres, hit, repl)) return n; n++;
+    }
   }
 
   // ---------- animations / slideshow logic ----------
@@ -627,9 +875,10 @@
   class ShowState {
     constructor(pres, start, order) {
       this.pres = pres;
-      this.order = Array.isArray(order) && order.length ? order.filter((k) => pres.slides[k]) : pres.slides.map((x, k) => k);
-      if (!this.order.length) this.order = [0];
-      this.pos = Array.isArray(order) && order.length ? 0 : clamp(start || 0, 0, this.order.length - 1);
+      const startIdx = clamp(start || 0, 0, pres.slides.length - 1);
+      this.order = Array.isArray(order) && order.length ? order.filter((k) => pres.slides[k]) : pres.slides.map((x, k) => k).filter((k) => !pres.slides[k].hidden || k === startIdx);
+      if (!this.order.length) this.order = [startIdx];
+      this.pos = Array.isArray(order) && order.length ? 0 : Math.max(0, this.order.indexOf(startIdx));
       this.i = this.order[this.pos];
       this.g = 0; this.auto = [];
       this._enter(false);
@@ -676,7 +925,7 @@
 
   return {
     W, SIZES, LAYOUTS, PH_PROMPT, FONTS, SIZES_PT, THEMES, VARIANTS, TRANSITIONS, TRANSITION_NAMES, ANIM_EFFECTS, ANIM_INFO, ANIM_STARTS, ANIM_DIR_EFFECTS, animCategory, animDefaults,
-    Presentation, History, ShowState, animGroups, groupTimeline, layoutPlaceholders, normShape,
+    Presentation, History, ShowState, spellText, readerText, diffPresentations, reviewIssues, makeSpeller, misspellings, spellIssues, spellReplace, spellReplaceAll, contrastRatio, SHAPE_KINDS, SHAPE_NAMES, POLY, animGroups, groupTimeline, layoutPlaceholders, normShape,
     canHoldText, hasTextStyle, safeUrl, STOCK, stockUrl, svgUrl, escapeXml: esc, isLineType, DEFAULT_TS, clone, clamp, contrastColor, shade, luminance, hexToRgb,
   };
 });
