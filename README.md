@@ -1,22 +1,17 @@
-<p align="center">
-  <img src="static/assets/logo.svg" alt="Quadra Office logo" width="320">
-</p>
-
-<h1 align="center">Quadra Office</h1>
-
-<p align="center">
-  A learning-focused office suite with Word, Excel, PowerPoint and OneNote style apps,
-  built with HTML, CSS, JavaScript, Python (FastAPI) and packaged with Electron.
-</p>
-
-<p align="center">
-  <a href="#features">Features</a> ·
-  <a href="#screenshots">Screenshots</a> ·
-  <a href="#getting-started">Getting Started</a> ·
-  <a href="#api-endpoints">API</a> ·
-  <a href="#project-structure">Structure</a> ·
-  <a href="#license">License</a>
-</p>
+<div align="center">
+  <!-- Replace the src path below with your actual SVG logo file path -->
+  <img src="static/assets/logo.svg" alt="Quadra Office logo" width="140" height="140" />
+  <h1>Quadra Office</h1>
+  <p>
+    <strong>An itch.io & Microsoft Store-Style Digital Game Storefront of the Quadra Ecosystem</strong>
+  </p>
+  <p>
+    <a href="https://github.com/amirsohail100"><img src="https://img.shields.io/badge/Founder-Amir_Sohail-blue?style=for-the-badge&logo=github" alt="Founder"></a>
+    <img src="https://img.shields.io/badge/Status-Live_(Monolithic)-success?style=for-the-badge" alt="Status">
+    <img src="https://img.shields.io/badge/Architecture-Transitioning_to_Distributed-orange?style=for-the-badge" alt="Architecture">
+    <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge" alt="License">
+  </p>
+</div>
 
 ---
 
