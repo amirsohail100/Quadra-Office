@@ -41,15 +41,15 @@
 
 **Home page**
 
-![Home page](static/assets/UI1.png)
+![Home page](static/assets/home_page.png)
 
-| Word                           | Excel                           |
-| ------------------------------ | ------------------------------- |
-| ![Word](static/assets/UI2.png) | ![Excel](static/assets/UI3.png) |
+| Word                                 | Excel                                  |
+| ------------------------------------ | -------------------------------------- |
+| ![Word](static/assets/word_page.png) | ![Excel](static/assets/excel_page.png) |
 
-| PowerPoint                           | OneNote                           |
-| ------------------------------------ | --------------------------------- |
-| ![PowerPoint](static/assets/UI4.png) | ![OneNote](static/assets/UI5.png) |
+| PowerPoint                                       | OneNote                                    |
+| ------------------------------------------------ | ------------------------------------------ |
+| ![PowerPoint](static/assets/powerpoint_page.png) | ![OneNote](static/assets/onenote_page.png) |
 
 ## Tech Stack
 
